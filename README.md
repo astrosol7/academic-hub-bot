@@ -4,7 +4,7 @@ A Telegram bot that serves as a resource hub for students, providing quick acces
 
 ## Features
 
-- **Quarter-based navigation** -- browse courses by Quarter 1 or Quarter 2
+- **Quarter-based navigation** -- browse courses by Quarters
 - **Course materials** -- access exams, syllabus, quizzes, tests, and additional files per course
 - **Course overviews** -- view grading breakdowns, key dates, tools, and focus areas at a glance
 - **File delivery** -- PDFs are sent directly to the chat via Telegram's `sendDocument`
