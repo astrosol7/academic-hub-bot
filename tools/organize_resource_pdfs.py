@@ -32,6 +32,11 @@ PREFIX_MAP: dict[str, tuple[str, str]] = {
 }
 
 
+def _word_match(pattern: str, text: str) -> bool:
+    """True when *pattern* appears in *text* as a whole word (word-boundary match)."""
+    return bool(re.search(rf"(?<![a-z]){re.escape(pattern)}(?![a-z])", text))
+
+
 def top_category(rest_lower: str) -> str:
     if "syllabus" in rest_lower:
         return "syllabus"
@@ -50,11 +55,11 @@ def top_category(rest_lower: str) -> str:
         return "lecture_recordings"
     if "quiz" in rest_lower:
         return "quizzes"
-    if "midterm" in rest_lower or "final" in rest_lower:
+    if _word_match("midterm", rest_lower) or _word_match("final", rest_lower):
         return "exams"
-    if "exam" in rest_lower:
+    if _word_match("exam", rest_lower):
         return "exams"
-    if "test" in rest_lower:
+    if _word_match("test", rest_lower):
         return "tests"
     return "readings"
 
@@ -118,7 +123,14 @@ def move_file(src: Path) -> str | None:
     if dest.resolve() == src.resolve():
         return "skip"
     if dest.exists():
-        dest = dest_d / f"{Path(src).stem}_dup{src.suffix}"
+        stem = Path(src).stem
+        suffix = src.suffix
+        n = 1
+        while True:
+            dest = dest_d / f"{stem}_dup{n}{suffix}"
+            if not dest.exists():
+                break
+            n += 1
     shutil.move(str(src), str(dest))
     return f"{src.name} -> {dest.relative_to(ROOT)}"
 
