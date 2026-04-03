@@ -33,8 +33,8 @@ PREFIX_MAP: dict[str, tuple[str, str]] = {
 
 
 def _word_match(pattern: str, text: str) -> bool:
-    """True when *pattern* appears in *text* as a whole word (word-boundary match)."""
-    return bool(re.search(rf"(?<![a-z]){re.escape(pattern)}(?![a-z])", text))
+    """True when *pattern* (or its plural) appears in *text* as a whole word."""
+    return bool(re.search(rf"(?<![a-z]){re.escape(pattern)}s?(?![a-z])", text))
 
 
 def top_category(rest_lower: str) -> str:
