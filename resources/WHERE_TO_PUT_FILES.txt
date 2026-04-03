@@ -1,0 +1,15 @@
+Flow: Main -> Quarter 1/2 -> pick course -> Exams / Syllabus / Quizzes / Tests / ...
+
+Folders (per course under Quarter_N/<CourseName>/):
+  syllabus/     Syllabus PDFs (preferred dump)
+  readings/     Legacy syllabus or extra readings (Syllabus button sends both)
+  exams/        Exam PDFs; optional subfolders: Exam_1/, Final/, Midterm/, General/
+  quizzes/
+  tests/
+
+Auto-sort loose PDFs by filename:
+  python tools/organize_resource_pdfs.py
+
+How students get files:
+  The bot runs on a computer that has this resources/ folder. It uses Telegram
+  sendDocument to upload each PDF from disk into the chat (like attaching a file).
