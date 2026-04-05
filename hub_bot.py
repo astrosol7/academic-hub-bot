@@ -234,6 +234,77 @@ def more_files_inline_kb(course_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def reply_main_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=RESOURCES)],
+            [KeyboardButton(text=MAIN)],
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Choose an option\u2026",
+    )
+
+
+def reply_quarter_pick_kb() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="1\ufe0f\u20e3 Quarter 1"), KeyboardButton(text="2\ufe0f\u20e3 Quarter 2")],
+            [KeyboardButton(text=BACK), KeyboardButton(text=MAIN)],
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Choose a quarter\u2026",
+    )
+
+
+def reply_quarter_course_list(q: int) -> ReplyKeyboardMarkup:
+    ids = QUARTER_COURSES[q]
+    rows: list[list[KeyboardButton]] = []
+    pair: list[KeyboardButton] = []
+    for cid in ids:
+        pair.append(KeyboardButton(text=COURSES[cid]["title"]))
+        if len(pair) == 2:
+            rows.append(pair)
+            pair = []
+    if pair:
+        rows.append(pair)
+    rows.append([KeyboardButton(text=BACK), KeyboardButton(text=MAIN)])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, input_field_placeholder="Choose a course\u2026")
+
+
+def reply_course_actions() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="\U0001f4dd Exams"), KeyboardButton(text="\U0001f4d8 Lecture notes")],
+            [KeyboardButton(text="\U0001f4c4 Syllabus"), KeyboardButton(text="\U0001f5d3 By week")],
+            [KeyboardButton(text="\u2728 Overview"), KeyboardButton(text="\U0001f4c2 More files")],
+            [KeyboardButton(text=BACK), KeyboardButton(text=MAIN)],
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Choose what you need\u2026",
+    )
+
+
+def reply_extra_categories() -> ReplyKeyboardMarkup:
+    icon_map = {
+        "Lecture recordings": "\U0001f3a5",
+        "Homework": "\U0001f9e0",
+        "Readings": "\U0001f4da",
+        "Breakout notes": "\U0001f5d2",
+        "Assignments": "\U0001f4cc",
+    }
+    rows: list[list[KeyboardButton]] = []
+    row: list[KeyboardButton] = []
+    for _slug, label in EXTRA_FILE_LABELS:
+        row.append(KeyboardButton(text=f"{icon_map.get(label, '\U0001f4c1')} {label}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([KeyboardButton(text=BACK), KeyboardButton(text=MAIN)])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, input_field_placeholder="Choose a category\u2026")
+
+
 def text_main() -> str:
     return (
         f"{head('Academic Hub')}\n\n"
@@ -244,6 +315,28 @@ def text_main() -> str:
 
 def _strip_visual_prefix(text: str) -> str:
     return text.split(" ", 1)[1] if " " in text else text
+
+
+def _pick_quarter_from_text(text: str | None) -> int | None:
+    if not text:
+        return None
+    low = text.lower()
+    if "quarter 1" in low or "quarter_1" in low:
+        return 1
+    if "quarter 2" in low or "quarter_2" in low:
+        return 2
+    return None
+
+
+def _normalize_extra_label(text: str | None) -> str | None:
+    if not text:
+        return None
+    return _strip_visual_prefix(text)
+
+
+def _week_folder_from_button(text: str, course_id: str) -> str | None:
+    stripped = _strip_visual_prefix(text)
+    return folder_from_week_button(stripped, course_id)
 
 
 def help_inline_kb(page: int) -> InlineKeyboardMarkup:
@@ -304,6 +397,19 @@ async def _edit_status(message: types.Message, text: str, reply_markup: InlineKe
         await message.edit_text(text, reply_markup=reply_markup, **_html())
     except Exception:
         pass
+
+
+async def _edit_callback_message(
+    query: CallbackQuery,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    if query.message:
+        try:
+            await query.message.edit_text(text, reply_markup=reply_markup, **_html())
+        except Exception:
+            pass
+    await query.answer()
 
 
 async def render_ui(
