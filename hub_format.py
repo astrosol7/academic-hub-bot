@@ -32,8 +32,11 @@ def subhead(s: str) -> str:
 
 
 def overview_title(course_name: str, shelf_emoji: str = "\N{BOOKS}") -> str:
-    """Institutional card title."""
-    return f"{shelf_emoji} <b>{html.escape(course_name)}</b>\n<i>At-a-glance</i>"
+    """Readable, shareable Telegram overview title."""
+    return (
+        f"{shelf_emoji} <b>{html.escape(course_name)}</b>\n"
+        "<i>Quick overview</i>"
+    )
 
 
 def ov_goal(icon: str, text: str) -> str:
@@ -41,10 +44,15 @@ def ov_goal(icon: str, text: str) -> str:
 
 
 def ov_lines_section(icon: str, label: str, lines: list[str]) -> str:
-    """Fast-scan bullet block."""
-    esc = "\n".join(f"  \u25b8 {html.escape(line)}" for line in lines)
+    """Fast-scan bullet block with breathing room."""
+    esc = "\n".join(f"• {html.escape(line)}" for line in lines)
     return f"{icon} <b>{html.escape(label)}</b>\n{esc}"
 
 
 def tiny_rule() -> str:
-    return "<i>-- -- --</i>"
+    return "<tg-spoiler>────────</tg-spoiler>"
+
+
+def overview_card(*parts: str) -> str:
+    clean_parts = [part.strip() for part in parts if part and part.strip()]
+    return "\n\n".join(clean_parts)
