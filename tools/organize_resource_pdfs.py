@@ -12,9 +12,15 @@ from __future__ import annotations
 
 import re
 import shutil
+import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent / "resources"
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+from hub_institution import resources_root
+
+ROOT = resources_root()
 
 PREFIX_MAP: dict[str, tuple[str, str]] = {
     "MATH_1110": ("Quarter_1", "Calculus_I"),
@@ -54,13 +60,13 @@ def top_category(rest_lower: str) -> str:
     ):
         return "lecture_recordings"
     if "quiz" in rest_lower:
-        return "quizzes"
+        return "exams"
     if _word_match("midterm", rest_lower) or _word_match("final", rest_lower):
         return "exams"
     if _word_match("exam", rest_lower):
         return "exams"
     if _word_match("test", rest_lower):
-        return "tests"
+        return "exams"
     return "readings"
 
 

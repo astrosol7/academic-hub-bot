@@ -1,4 +1,4 @@
-"""Academic Hub data: short labels, quarter-first paths, Telegram links, overviews."""
+"""Curated course data: quarter paths, categories, file iteration for the bot."""
 
 from __future__ import annotations
 
@@ -6,44 +6,30 @@ import re
 from pathlib import Path
 from typing import TypedDict
 
-from hub_format import overview_title, ov_goal, ov_lines_section, tiny_rule
+from hub_format import overview_card, overview_title, ov_goal, ov_lines_section, tiny_rule
+from hub_institution import resources_root
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-RESOURCES_ROOT = PACKAGE_ROOT / "resources"
-
-# ── Telegram links ─────────────────────────────────────────
-HUB_FORUM_INVITE = "https://t.me/+q3y__foMScVmODg0"
-
-TOPICS: dict[str, tuple[str, str]] = {
-    "programming": ("https://t.me/c/3653709098/766", "Programming"),
-    "academic_discussions": ("https://t.me/c/3653709098/1", "Academic Discussions"),
-    "english": ("https://t.me/c/3653709098/9", "English"),
-    "maths": ("https://t.me/c/3653709098/5", "Maths"),
-    "resource_index": ("https://t.me/c/3653709098/1034", "Resource Index"),
-    "physics": ("https://t.me/c/3653709098/7", "Physics"),
-    "announcements": ("https://t.me/c/3653709098/1121", "Announcements"),
-    "chemistry": ("https://t.me/c/3653709098/3", "Chemistry"),
-}
-
-# On-disk layout: resources/Quarter_<n>/<Folder>/<category>/files
+# resources/institutions/<slug>/Quarter_<n>/<Course_folder>/<category>/…
+RESOURCES_ROOT = resources_root()
 # Categories used for file delivery:
 FILE_CATEGORIES = (
     "exams",
-    "quizzes",
-    "tests",
+    "syllabus",
     "readings",
     "lecture_notes",
     "lecture_recordings",
     "breakout_sessions",
     "assignments",
     "homework",
+    "weeks",
 )
 
-# Syllabus = own button. “More files” adds recordings (required), homework, etc.
+# “More files” — lecture notes have their own top-level button; avoid duplicate labels.
 EXTRA_FILE_LABELS: list[tuple[str, str]] = [
     ("lecture_recordings", "Lecture recordings"),
     ("homework", "Homework"),
-    ("lecture_notes", "Lecture notes"),
+    ("readings", "Readings"),
     ("breakout_sessions", "Breakout notes"),
     ("assignments", "Assignments"),
 ]
@@ -57,19 +43,6 @@ class Course(TypedDict):
     folder: str  # e.g. Calculus_I — under Quarter_1/
     topic_key: str
     overview_html: str
-    hub_links_blurb: str  # short reuse for Forum/Resources screen
-
-
-def _link(topic_key: str) -> str:
-    url, label = TOPICS[topic_key]
-    return f'<a href="{url}">{label}</a>'
-
-
-def _hub_blurb(topic_key: str) -> str:
-    return (
-        f'{_link("resource_index")} · {_link("announcements")} · '
-        f'Subject: {_link(topic_key)}'
-    )
 
 
 def _overview_card(
@@ -80,17 +53,16 @@ def _overview_card(
     tools: list[str],
     focus: list[str],
 ) -> str:
-    """Readable on mobile: sections + bullets, subtle emoji."""
-    parts = [
+    """Readable on mobile: sections + spacing + quick visual scan."""
+    return overview_card(
         overview_title(title),
         tiny_rule(),
         ov_goal("\U0001f3af", goal),
         ov_lines_section("\U0001f4ca", "Grading", grading),
         ov_lines_section("\U0001f4c5", "Key dates", dates),
         ov_lines_section("\U0001f6e0\ufe0f", "Tools", tools),
-        ov_lines_section("\u2726", "Focus areas", focus),
-    ]
-    return "\n".join(parts)
+        ov_lines_section("\u2728", "Focus areas", focus),
+    )
 
 
 COURSES: dict[str, Course] = {
@@ -126,7 +98,6 @@ COURSES: dict[str, Course] = {
                 "Fundamental theorem and integration",
             ],
         ),
-        hub_links_blurb=_hub_blurb("maths"),
     ),
     "physics_i": Course(
         title="Physics I",
@@ -159,7 +130,6 @@ COURSES: dict[str, Course] = {
                 "Thermodynamics and kinetic theory",
             ],
         ),
-        hub_links_blurb=_hub_blurb("physics"),
     ),
     "chemistry_i": Course(
         title="Chemistry I",
@@ -191,7 +161,6 @@ COURSES: dict[str, Course] = {
                 "Kinetics and equilibrium",
             ],
         ),
-        hub_links_blurb=_hub_blurb("chemistry"),
     ),
     "english_comp": Course(
         title="English Composition",
@@ -220,7 +189,6 @@ COURSES: dict[str, Course] = {
                 "Audience and clarity",
             ],
         ),
-        hub_links_blurb=_hub_blurb("english"),
     ),
     "python": Course(
         title="Python",
@@ -254,7 +222,6 @@ COURSES: dict[str, Course] = {
                 "Simple physical models",
             ],
         ),
-        hub_links_blurb=_hub_blurb("programming"),
     ),
     "chemistry_lab": Course(
         title="Chemistry Lab",
@@ -284,7 +251,6 @@ COURSES: dict[str, Course] = {
                 "Calorimetry",
             ],
         ),
-        hub_links_blurb=_hub_blurb("chemistry"),
     ),
     "writing_ii": Course(
         title="Writing & Rhetoric II",
@@ -316,7 +282,6 @@ COURSES: dict[str, Course] = {
                 "Professional format",
             ],
         ),
-        hub_links_blurb=_hub_blurb("english"),
     ),
     "calculus_ii": Course(
         title="Calculus II",
@@ -350,7 +315,6 @@ COURSES: dict[str, Course] = {
                 "Parametric, polar, and vectors",
             ],
         ),
-        hub_links_blurb=_hub_blurb("maths"),
     ),
     "physics_ii": Course(
         title="Physics II",
@@ -381,7 +345,6 @@ COURSES: dict[str, Course] = {
                 "Waves and optics",
             ],
         ),
-        hub_links_blurb=_hub_blurb("physics"),
     ),
     "seminar": Course(
         title="Seminar",
@@ -408,7 +371,6 @@ COURSES: dict[str, Course] = {
                 "Professional development",
             ],
         ),
-        hub_links_blurb=_hub_blurb("academic_discussions"),
     ),
 }
 
@@ -433,6 +395,47 @@ def course_dir(course_id: str) -> Path:
 
 def category_dir(course_id: str, category: str) -> Path:
     return course_dir(course_id) / category
+
+
+def weeks_dir(course_id: str) -> Path:
+    return course_dir(course_id) / "weeks"
+
+
+def iter_week_labels(course_id: str) -> list[str]:
+    """Subfolders like Week_01 … that contain at least one file (curated week bundles)."""
+    base = weeks_dir(course_id)
+    if not base.is_dir():
+        return []
+    out: list[str] = []
+    for p in sorted(base.iterdir()):
+        if not p.is_dir():
+            continue
+        if not p.name.lower().startswith("week"):
+            continue
+        if iter_files_in_dir(p):
+            out.append(p.name)
+    return out
+
+
+def iter_course_week_files(course_id: str, week_folder_name: str) -> list[tuple[Path, str]]:
+    c = COURSES[course_id]
+    display = c["title"]
+    d = weeks_dir(course_id) / week_folder_name
+    return [(p, f"{display} — {human_file_label(p.stem)}") for p in iter_files_in_dir(d)]
+
+
+def week_label_for_ui(folder_name: str) -> str:
+    m = re.match(r"(?i)week[_\s-]*(\d+)", folder_name)
+    if m:
+        return f"Week {int(m.group(1))}"
+    return folder_name.replace("_", " ")
+
+
+def folder_from_week_button(button_text: str, course_id: str) -> str | None:
+    for folder in iter_week_labels(course_id):
+        if week_label_for_ui(folder) == button_text.strip():
+            return folder
+    return None
 
 
 def iter_files_in_dir(d: Path) -> list[Path]:
@@ -495,8 +498,14 @@ def iter_course_syllabus(course_id: str) -> list[tuple[Path, str]]:
 
 
 def human_file_label(stem: str) -> str:
-    """Label after stripping typical COURSE_Qn_ prefix from stems."""
-    stripped = re.sub(r"^[A-Za-z]+_?\d+_Q\d+_", "", stem, flags=re.I)
+    """Label after stripping catalog-style prefixes from ingest names."""
+    stripped = re.sub(
+        r"^[A-Za-z]+_?\d+_Q\d+_(?:lecnotes|exams|syllabus|readings|homework|weekpack|weeks)(?:_W\d+)?(?:_[A-Za-z0-9]+)*_",
+        "",
+        stem,
+        flags=re.I,
+    )
+    stripped = re.sub(r"^[A-Za-z]+_?\d+_Q\d+_", "", stripped, flags=re.I)
     raw = (stripped or stem).replace("_", " ").strip()
     if not raw:
         return "File"
