@@ -1,0 +1,39 @@
+{
+  "id": "chemistry_i",
+  "title": "Chemistry I",
+  "quarter": 1,
+  "folder": "Chemistry_I",
+  "aliases": ["chemistry i", "chemistry 1", "chem 1210", "sit chemistry"],
+  "search_terms": ["stoichiometry", "bonding", "thermochemistry", "equilibrium"],
+  "kind": "standard",
+  "supports_weeks": true,
+  "week_count": 12,
+  "top_level_actions": ["overview", "by_week", "exams", "lecture_notes", "lecture_recordings", "breakout_notes"],
+  "more_files_actions": ["homework", "assignments", "readings", "projects"],
+  "week_actions": ["lecture_notes", "lecture_recordings", "homework", "assignments", "readings", "breakout_notes", "projects", "exams"],
+  "overview": {
+    "goal": "Accelerated introduction to core chemistry and lab reasoning.",
+    "grading": [
+      "Exams — 60% (four; lowest one dropped)",
+      "Quizzes — 25% (six; lowest one dropped)",
+      "Homework — 15% (twelve)"
+    ],
+    "dates": [
+      "Exam 1 (Ch.1–4) — week 4",
+      "Exam 2 (Ch.5–8) — week 8",
+      "Exam 3 (Ch.9–11) — week 11",
+      "Final exam — week 12"
+    ],
+    "tools": [
+      "Text: Chemistry: A Molecular Approach (5e), Tro",
+      "Lab PPE: coat, goggles, gloves (required)"
+    ],
+    "focus": [
+      "Stoichiometry and quantities",
+      "Atomic structure and bonding",
+      "Thermochemistry",
+      "Kinetics and equilibrium"
+    ]
+  }
+}
+
