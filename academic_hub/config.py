@@ -22,6 +22,7 @@ class AppConfig:
     resources_root: Path
     manifests_root: Path
     log_level: str
+    max_index_memory_mb: float
 
 
 def load_config(*, require_token: bool = True) -> AppConfig:
@@ -44,5 +45,5 @@ def load_config(*, require_token: bool = True) -> AppConfig:
         resources_root=BASE_DIR / "resources" / "institutions" / institution_slug,
         manifests_root=BASE_DIR / "academic_hub" / "manifests",
         log_level=(os.environ.get("ACADEMIC_HUB_LOG_LEVEL") or "INFO").upper(),
+        max_index_memory_mb=float(os.environ.get("ACADEMIC_HUB_MAX_INDEX_MEMORY_MB") or "32"),
     )
-

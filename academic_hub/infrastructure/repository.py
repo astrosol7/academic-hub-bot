@@ -1,16 +1,28 @@
 from __future__ import annotations
 
-import logging
+import sys
 from collections import defaultdict
 from pathlib import Path
 
-from academic_hub.domain.models import CategoryDefinition, CourseManifest, InstitutionManifest, ResourceFile, ValidationReport
+from academic_hub.domain.models import (
+    CategoryDefinition,
+    CourseManifest,
+    InstitutionManifest,
+    ResourceFile,
+    ValidationIssue,
+    ValidationReport,
+    ValidationSeverity,
+)
 from academic_hub.infrastructure.loader import load_category_registry, load_course_manifests, load_institution_manifest
 from academic_hub.infrastructure.validation import RepositoryValidator
-from academic_hub.utils.parsing import canonical_week_folder, humanize_file_label, infer_category_slug, looks_like_syllabus, normalize_text, tokenize
-
-
-log = logging.getLogger(__name__)
+from academic_hub.utils.parsing import (
+    canonical_week_folder,
+    humanize_file_label,
+    infer_category_slug,
+    looks_like_syllabus,
+    normalize_text,
+    tokenize,
+)
 
 
 class FilesystemContentRepository:
@@ -32,7 +44,21 @@ class FilesystemContentRepository:
         )
         self._searchable_course_tokens: dict[str, tuple[str, ...]] = {}
         self._searchable_file_tokens: dict[tuple[str, str, int | None], tuple[str, ...]] = {}
+        self._indexed_paths: set[Path] = set()
         self._index_content()
+        self.validation_report = self.validation_report.with_issues(self._detect_orphan_files())
+        self.index_memory_bytes = _deep_size(
+            (
+                self._course_files,
+                self._week_files,
+                self._searchable_course_tokens,
+                self._searchable_file_tokens,
+            )
+        )
+
+    @property
+    def index_memory_mb(self) -> float:
+        return round(self.index_memory_bytes / (1024 * 1024), 3)
 
     def list_quarters(self) -> list[int]:
         return sorted(self.institution.quarter_order)
@@ -95,6 +121,7 @@ class FilesystemContentRepository:
                     if resolved in seen:
                         continue
                     seen.add(resolved)
+                    self._indexed_paths.add(resolved)
                     files.append(
                         ResourceFile(
                             path=path,
@@ -118,6 +145,7 @@ class FilesystemContentRepository:
             if not folder.is_dir():
                 continue
             for path in self._iter_files(folder):
+                self._indexed_paths.add(path.resolve())
                 rel = path.relative_to(folder)
                 inferred = infer_category_slug(rel)
                 if inferred not in self.categories:
@@ -161,6 +189,26 @@ class FilesystemContentRepository:
                         token_set.update(tokenize(item.label))
                     self._searchable_file_tokens[(course_id, category_slug, week_number)] = tuple(sorted(token_set))
 
+    def _detect_orphan_files(self) -> list[ValidationIssue]:
+        if not self.resources_root.is_dir():
+            return []
+        issues: list[ValidationIssue] = []
+        for path in self._iter_files(self.resources_root):
+            resolved = path.resolve()
+            if resolved in self._indexed_paths:
+                continue
+            if path.suffix.lower() not in {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".zip"}:
+                continue
+            issues.append(
+                ValidationIssue(
+                    severity=ValidationSeverity.WARNING,
+                    code="system_orphan_file",
+                    message=f"File is present on disk but not reachable from manifests: {path}",
+                    context={"path": str(path)},
+                )
+            )
+        return issues
+
     @staticmethod
     def _iter_files(folder: Path) -> list[Path]:
         if not folder.is_dir():
@@ -175,3 +223,21 @@ class FilesystemContentRepository:
                 continue
             files.append(path)
         return files
+
+
+def _deep_size(value: object, seen: set[int] | None = None) -> int:
+    if seen is None:
+        seen = set()
+    identity = id(value)
+    if identity in seen:
+        return 0
+    seen.add(identity)
+    size = sys.getsizeof(value)
+
+    if isinstance(value, dict):
+        return size + sum(_deep_size(key, seen) + _deep_size(item, seen) for key, item in value.items())
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return size + sum(_deep_size(item, seen) for item in value)
+    if hasattr(value, "__dict__"):
+        return size + _deep_size(vars(value), seen)
+    return size
