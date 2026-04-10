@@ -1,0 +1,41 @@
+{
+  "id": "python",
+  "title": "Python",
+  "quarter": 2,
+  "folder": "Python",
+  "aliases": ["python", "programming in python", "comp 1210"],
+  "search_terms": ["coding", "programming", "functions", "lists", "dictionaries"],
+  "kind": "standard",
+  "supports_weeks": true,
+  "week_count": 12,
+  "top_level_actions": ["overview", "by_week", "exams", "lecture_notes", "lecture_recordings", "breakout_notes"],
+  "more_files_actions": ["homework", "assignments", "readings", "projects"],
+  "week_actions": ["lecture_notes", "lecture_recordings", "homework", "assignments", "readings", "breakout_notes", "projects", "exams"],
+  "overview": {
+    "goal": "Project-based Python for algorithmic thinking and STEM workflows.",
+    "grading": [
+      "Projects — 40%",
+      "Final exam — 20%",
+      "Midterm — 15%",
+      "Quizzes — 15%",
+      "Exercises — 10%"
+    ],
+    "dates": [
+      "Midterm — week 6",
+      "Final project — due week 11",
+      "Final exam — week 12"
+    ],
+    "tools": [
+      "Python 3.x",
+      "IDE: VS Code or PyCharm",
+      "Google Colab when assigned"
+    ],
+    "focus": [
+      "Control flow (loops, conditionals)",
+      "Functions and modular code",
+      "Lists, dicts, tuples",
+      "Simple physical models"
+    ]
+  }
+}
+

@@ -1,0 +1,38 @@
+{
+  "id": "physics_ii",
+  "title": "Physics II",
+  "quarter": 2,
+  "folder": "Physics_II",
+  "aliases": ["physics ii", "physics 2", "phys 1320"],
+  "search_terms": ["electromagnetism", "magnetism", "optics", "electric fields"],
+  "kind": "standard",
+  "supports_weeks": true,
+  "week_count": 12,
+  "top_level_actions": ["overview", "by_week", "exams", "lecture_notes", "lecture_recordings", "breakout_notes"],
+  "more_files_actions": ["homework", "assignments", "readings", "projects"],
+  "week_actions": ["lecture_notes", "lecture_recordings", "homework", "assignments", "readings", "breakout_notes", "projects", "exams"],
+  "overview": {
+    "goal": "Calculus-based E&M, Maxwell framework, and geometrical optics.",
+    "grading": [
+      "Exams — 60% (four)",
+      "Assignments — 20% (ten)",
+      "Project — 20% (one)"
+    ],
+    "dates": [
+      "Exam 1 — week 3",
+      "Exam 2 — week 6",
+      "Exam 3 — week 9",
+      "Final exam — week 12"
+    ],
+    "tools": [
+      "Text: Physics for Scientists and Engineers (Serway & Jewett)"
+    ],
+    "focus": [
+      "Electric fields and Gauss’s law",
+      "Capacitance, current, resistance",
+      "Magnetism and induction",
+      "Waves and optics"
+    ]
+  }
+}
+

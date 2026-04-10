@@ -1,0 +1,25 @@
+{
+  "slug": "sit",
+  "display_name": "Shaggar Institute of Technology",
+  "quarter_labels": {
+    "1": "Quarter 1",
+    "2": "Quarter 2"
+  },
+  "quarter_order": {
+    "1": ["calculus_i", "physics_i", "chemistry_i", "english_comp"],
+    "2": ["python", "chemistry_lab", "writing_ii", "calculus_ii", "physics_ii", "seminar"]
+  },
+  "course_files": [
+    "courses/calculus_i.json",
+    "courses/physics_i.json",
+    "courses/chemistry_i.json",
+    "courses/english_comp.json",
+    "courses/python.json",
+    "courses/chemistry_lab.json",
+    "courses/writing_ii.json",
+    "courses/calculus_ii.json",
+    "courses/physics_ii.json",
+    "courses/seminar.json"
+  ]
+}
+

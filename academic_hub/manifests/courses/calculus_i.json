@@ -1,0 +1,41 @@
+{
+  "id": "calculus_i",
+  "title": "Calculus I",
+  "quarter": 1,
+  "folder": "Calculus_I",
+  "aliases": ["calculus i", "calculus 1", "calc i", "calc 1", "math 1110", "maths 1110"],
+  "search_terms": ["mathematics", "sit mathematics", "functions", "derivatives", "integrals"],
+  "kind": "standard",
+  "supports_weeks": true,
+  "week_count": 12,
+  "top_level_actions": ["overview", "by_week", "exams", "lecture_notes", "lecture_recordings", "breakout_notes"],
+  "more_files_actions": ["homework", "assignments", "readings", "projects"],
+  "week_actions": ["lecture_notes", "lecture_recordings", "homework", "assignments", "readings", "breakout_notes", "projects", "exams"],
+  "overview": {
+    "goal": "Differentiation and integration in one variable, with engineering applications.",
+    "grading": [
+      "Final exam — 20%",
+      "Tests — 45% (three × 15%)",
+      "Quizzes — 15%",
+      "Homework — 10%",
+      "Projects — 10%"
+    ],
+    "dates": [
+      "Test 1 (Ch.1–2) — weeks 2–3",
+      "Test 2 (Ch.3–4) — weeks 7–8",
+      "Test 3 (Ch.5–6) — weeks 11–12",
+      "Final exam — week 12 (comprehensive)"
+    ],
+    "tools": [
+      "Text: Calculus Early Transcendentals (9e), Stewart",
+      "Software: Mathematica or MATLAB"
+    ],
+    "focus": [
+      "Limits and continuity",
+      "Derivative rules and related rates",
+      "Optimization",
+      "Fundamental theorem and integration"
+    ]
+  }
+}
+
