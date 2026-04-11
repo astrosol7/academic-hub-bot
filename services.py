@@ -4,9 +4,33 @@ from pathlib import Path
 from typing import List, Optional, Dict
 from aiogram import Bot, types
 from aiogram.fsm.context import FSMContext
-from .models import CourseManifest, CategoryDefinition, SearchIntent
+from .models import (
+    CategoryDefinition,
+    CourseManifest,
+    ResourceFile,
+    ScreenView,
+    SearchQuery,
+    SearchResolution,
+    SearchResult,
+    SearchStatus,
+)
 
 log = logging.getLogger(__name__)
+
+class ButtonLabels:
+    BACK = "◀ Back"
+    MAIN = "⌂ Main menu"
+    RESOURCES = "📚 Resources"
+    EXAMS = "📝 Exams"
+    NOTES = "📘 Lecture notes"
+    SYLLABUS = "📄 Syllabus"
+    WEEKS = "🗓 By week"
+    OVERVIEW = "✨ Overview"
+    MORE = "📂 More files"
+
+class NavigationStatus:
+    SENDING = "sending"
+    TRANSIENT_IDS = "transient_ids"
 
 class NavigationService:
     """Manages FSM state transitions and transient message cleanup."""
@@ -88,7 +112,7 @@ class SearchService:
                 clean = t.replace(" ", "")
                 self.index.setdefault(clean, []).append(cid)
 
-    def resolve(self, query: str) -> List[SearchIntent]:
+    def resolve(self, query: str) -> List[SearchResult]:
         query = query.lower().replace(" ", "")
         matches = self.index.get(query, [])
-        return [SearchIntent(course_id=cid, score=1.0) for cid in matches]
+        return [SearchResult(course_id=cid, score=1.0) for cid in matches]

@@ -25,6 +25,14 @@ class AppConfig:
     max_index_memory_mb: float
 
 
+def _float_env(name: str, default: str) -> float:
+    raw = (os.environ.get(name) or default).strip()
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a number, got {raw!r}.") from exc
+
+
 def load_config(*, require_token: bool = True) -> AppConfig:
     token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
     if require_token and not token:
@@ -45,5 +53,5 @@ def load_config(*, require_token: bool = True) -> AppConfig:
         resources_root=BASE_DIR / "resources" / "institutions" / institution_slug,
         manifests_root=BASE_DIR / "academic_hub" / "manifests",
         log_level=(os.environ.get("ACADEMIC_HUB_LOG_LEVEL") or "INFO").upper(),
-        max_index_memory_mb=float(os.environ.get("ACADEMIC_HUB_MAX_INDEX_MEMORY_MB") or "32"),
+        max_index_memory_mb=_float_env("ACADEMIC_HUB_MAX_INDEX_MEMORY_MB", "32"),
     )

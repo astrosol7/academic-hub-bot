@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from academic_hub.domain.interfaces import ContentRepository
-from academic_hub.domain.models import ResourceFile, ScreenView, SearchQuery, SearchResolution, SearchResult
+from academic_hub.domain.models import ResourceFile, ScreenView, SearchIntent, SearchResolution, SearchResult
 from academic_hub.utils.formatting import render_overview
 from academic_hub.utils.parsing import normalize_text, parse_week_number, score_overlap, tokenize
 
@@ -141,16 +141,16 @@ class SearchService:
     def __init__(self, repository: ContentRepository) -> None:
         self.repository = repository
 
-    def parse(self, raw_text: str) -> SearchQuery:
+    def parse(self, raw_text: str) -> SearchIntent:
         tokens = tokenize(raw_text)
         normalized = normalize_text(raw_text)
         wants_syllabus = "syllabus" in normalized
 
-        return SearchQuery(
+        return SearchIntent(
             raw_text=raw_text,
+            normalized_text=normalized,
             tokens=tokens,
             week_number=parse_week_number(normalized),
-            category_slug=None,
             wants_syllabus=wants_syllabus,
         )
 
@@ -226,7 +226,7 @@ class SearchService:
         resolution = self.resolve(raw_text)
         return resolution.result if resolution.kind == "match" else None
 
-    def _rank_courses(self, query: SearchQuery, normalized_query: str) -> list[tuple[str, int]]:
+    def _rank_courses(self, query: SearchIntent, normalized_query: str) -> list[tuple[str, int]]:
         scored: list[tuple[str, int]] = []
         for course_id in self.repository.courses:
             score = score_overlap(query.tokens, self.repository.searchable_course_tokens(course_id))
@@ -236,7 +236,7 @@ class SearchService:
         scored.sort(key=lambda item: (-item[1], item[0]))
         return scored
 
-    def _resolve_category(self, query: SearchQuery, normalized_query: str, course_id: str) -> SearchResolution:
+    def _resolve_category(self, query: SearchIntent, normalized_query: str, course_id: str) -> SearchResolution:
         if query.wants_syllabus:
             return SearchResolution(kind="match", course_id=course_id, category_slugs=("readings",), syllabus_only=True)
 

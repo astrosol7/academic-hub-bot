@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 import logging
+from pathlib import Path
 from typing import Any
 
 from aiogram import Dispatcher, Router, types
@@ -10,8 +10,9 @@ from aiogram.fsm.context import FSMContext
 
 from academic_hub.clients.telegram.delivery import DeliveryCoordinator
 from academic_hub.clients.telegram.renderer import TelegramRenderer
+from academic_hub.clients.telegram.session import load_session, save_session
 from academic_hub.clients.telegram.state import HubStates
-from academic_hub.domain.models import ScreenView, SearchResolution, SearchResult, TelegramSession
+from academic_hub.domain.models import RetryRequest, ScreenView, SearchResult, TelegramSession
 from academic_hub.domain.services import ButtonLabels, DeliveryService, NavigationService, SearchService
 from academic_hub.infrastructure.repository import FilesystemContentRepository
 
@@ -41,18 +42,23 @@ def register_handlers(
     labels = ButtonLabels()
 
     async def get_session(state: FSMContext) -> TelegramSession:
-        data = await state.get_data()
-        raw = data.get("session") or {}
-        return TelegramSession(
-            level=str(raw.get("level", "home")),
-            quarter=raw.get("quarter"),
-            course_id=raw.get("course_id"),
-            section=raw.get("section"),
-            week_number=raw.get("week_number"),
-        )
+        return await load_session(state)
 
     async def set_session(state: FSMContext, session: TelegramSession) -> None:
-        await state.update_data(session=asdict(session))
+        current = await load_session(state)
+        updated = current.model_copy(
+            update={
+                "level": session.level,
+                "quarter": session.quarter,
+                "course_id": session.course_id,
+                "section": session.section,
+                "week_number": session.week_number,
+            }
+        )
+        await save_session(state, updated)
+
+    def path_key(path: Path | str) -> str:
+        return Path(path).resolve().as_posix()
 
     def category_slug_from_label(label: str, allowed_actions: tuple[str, ...]) -> str | None:
         for action in allowed_actions:
@@ -82,7 +88,21 @@ def register_handlers(
         )
 
     async def clear_retry(state: FSMContext) -> None:
-        await state.update_data(retry_request=None)
+        session = await load_session(state)
+        await save_session(state, session.model_copy(update={"retry_request": None}))
+
+    async def get_course_or_home(
+        message: types.Message,
+        state: FSMContext,
+        course_id: str,
+    ):
+        course = repository.get_course(course_id)
+        if course is not None:
+            return course
+        log.warning("event=missing_course_context course_id=%s", course_id)
+        await message.answer("That course is unavailable right now. Returning to the main menu.")
+        await render_home(message, state)
+        return None
 
     async def render_home(message: types.Message, state: FSMContext) -> None:
         await state.set_state(HubStates.home)
@@ -110,8 +130,9 @@ def register_handlers(
         overview: bool = False,
         retry_enabled: bool = False,
     ) -> None:
-        course = repository.get_course(course_id)
-        assert course is not None
+        course = await get_course_or_home(message, state, course_id)
+        if course is None:
+            return
         await state.set_state(HubStates.course)
         await set_session(
             state,
@@ -128,8 +149,9 @@ def register_handlers(
         await renderer.render(message, state, screen)
 
     async def render_more_files(message: types.Message, state: FSMContext, course_id: str, *, retry_enabled: bool = False) -> None:
-        course = repository.get_course(course_id)
-        assert course is not None
+        course = await get_course_or_home(message, state, course_id)
+        if course is None:
+            return
         await state.set_state(HubStates.more_files)
         await set_session(
             state,
@@ -140,8 +162,9 @@ def register_handlers(
         await renderer.render(message, state, navigation.more_files(course_id, retry_enabled=retry_enabled))
 
     async def render_week_list(message: types.Message, state: FSMContext, course_id: str) -> None:
-        course = repository.get_course(course_id)
-        assert course is not None
+        course = await get_course_or_home(message, state, course_id)
+        if course is None:
+            return
         await state.set_state(HubStates.week_list)
         await set_session(
             state,
@@ -158,8 +181,9 @@ def register_handlers(
         *,
         retry_enabled: bool = False,
     ) -> None:
-        course = repository.get_course(course_id)
-        assert course is not None
+        course = await get_course_or_home(message, state, course_id)
+        if course is None:
+            return
         await state.set_state(HubStates.week_category)
         await set_session(
             state,
@@ -177,14 +201,16 @@ def register_handlers(
 
     async def repeat_current_screen(message: types.Message, state: FSMContext) -> None:
         session = await get_session(state)
-        data = await state.get_data()
-        retry_enabled = bool(data.get("retry_request"))
+        retry_enabled = session.retry_request is not None
         if session.level == "resources":
             await renderer.render(message, state, navigation.resources())
             return
         if session.level == "quarter" and session.quarter is not None:
             quarter = int(session.quarter)
             await renderer.render(message, state, navigation.quarter_courses(quarter))
+            return
+        if session.level == "course" and session.course_id and repository.get_course(session.course_id) is None:
+            await render_home(message, state)
             return
         if session.level == "course" and session.course_id and session.section == "course":
             await renderer.render(message, state, navigation.course(session.course_id, retry_enabled=retry_enabled))
@@ -219,7 +245,8 @@ def register_handlers(
     ) -> None:
         if not items:
             await clear_retry(state)
-            await message.answer(EMPTY_MESSAGE)
+            notice = await message.answer(EMPTY_MESSAGE)
+            await renderer.track_transient_message(state, notice.message_id)
             await renderer.render(message, state, screen)
             return
 
@@ -227,47 +254,63 @@ def register_handlers(
         if outcome.cancelled:
             return
         if outcome.failed_items:
-            await state.update_data(
-                retry_request={
-                    **retry_request,
-                    "failed_paths": [str(item.path) for item in outcome.failed_items],
+            session = await load_session(state)
+            session = session.model_copy(
+                update={
+                    "retry_request": RetryRequest.model_validate(
+                        {
+                            **retry_request,
+                            "failed_paths": [path_key(item.path) for item in outcome.failed_items],
+                        }
+                    )
                 }
             )
-            await message.answer("Some files could not be sent. Tap Retry if you want to try again.")
+            await save_session(state, session)
+            notice = await message.answer("Some files could not be sent. Tap Retry if you want to try again.")
+            await renderer.track_transient_message(state, notice.message_id)
             await renderer.render(message, state, retry_screen(screen))
             return
 
         await clear_retry(state)
         if outcome.sent_count:
-            await message.answer("Done.")
+            notice = await message.answer("Done.")
+            await renderer.track_transient_message(state, notice.message_id)
         await renderer.render(message, state, screen)
 
     async def run_retry(message: types.Message, state: FSMContext) -> None:
-        data = await state.get_data()
-        request = data.get("retry_request") or {}
-        course_id = request.get("course_id")
-        category_slug = request.get("category_slug")
-        week_number = request.get("week_number")
-        syllabus_only = bool(request.get("syllabus_only"))
-        failed_paths = set(request.get("failed_paths", []))
+        session = await load_session(state)
+        request = session.retry_request
+        if request is None:
+            await clear_retry(state)
+            await message.answer("Nothing is pending for retry.")
+            await repeat_current_screen(message, state)
+            return
+        course_id = request.course_id
+        category_slug = request.category_slug
+        week_number = request.week_number
+        syllabus_only = request.syllabus_only
+        failed_paths = set(request.failed_paths)
         if not course_id or not category_slug or not failed_paths:
             await clear_retry(state)
             await message.answer("Nothing is pending for retry.")
             await repeat_current_screen(message, state)
+            return
+        course = await get_course_or_home(message, state, course_id)
+        if course is None:
             return
 
         if week_number is None:
             items = [
                 item
                 for item in delivery.bundle_for_course_category(course_id, category_slug, syllabus_only=syllabus_only)
-                if str(item.path) in failed_paths
+                if path_key(item.path) in failed_paths
             ]
-            screen = navigation.more_files(course_id) if request.get("scope") == "more" else navigation.course(course_id)
+            screen = navigation.more_files(course_id) if request.scope == "more" else navigation.course(course_id)
         else:
             items = [
                 item
                 for item in delivery.bundle_for_week_category(course_id, int(week_number), category_slug)
-                if str(item.path) in failed_paths
+                if path_key(item.path) in failed_paths
             ]
             screen = navigation.week_category(course_id, int(week_number))
 
@@ -281,8 +324,9 @@ def register_handlers(
         )
 
     async def apply_search_result(message: types.Message, state: FSMContext, result: SearchResult) -> None:
-        course = repository.get_course(result.course_id)
-        assert course is not None
+        course = await get_course_or_home(message, state, result.course_id)
+        if course is None:
+            return
         await message.answer(f"Search match: {result.label}")
 
         if result.action == "open_course":
@@ -444,23 +488,23 @@ def register_handlers(
     async def course_state(message: types.Message, state: FSMContext) -> None:
         if await handle_main_menu(message, state):
             return
-        data = await state.get_data()
         session = await get_session(state)
         course_id = session.course_id
         if not course_id:
             await render_home(message, state)
             return
-        course = repository.get_course(course_id)
-        assert course is not None
+        course = await get_course_or_home(message, state, course_id)
+        if course is None:
+            return
         if message.text == labels.back:
             await coordinator.cancel_active_delivery(state)
             await render_quarter(message, state, course.quarter)
             return
-        if message.text == labels.retry and data.get("retry_request"):
+        if message.text == labels.retry and session.retry_request is not None:
             await run_retry(message, state)
             return
         if message.text == labels.overview:
-            await render_course(message, state, course_id, overview=True, retry_enabled=bool(data.get("retry_request")))
+            await render_course(message, state, course_id, overview=True, retry_enabled=session.retry_request is not None)
             return
         if message.text == labels.by_week:
             await render_week_list(message, state, course_id)
@@ -490,19 +534,19 @@ def register_handlers(
     async def more_files_state(message: types.Message, state: FSMContext) -> None:
         if await handle_main_menu(message, state):
             return
-        data = await state.get_data()
         session = await get_session(state)
         course_id = session.course_id
         if not course_id:
             await render_home(message, state)
             return
-        course = repository.get_course(course_id)
-        assert course is not None
+        course = await get_course_or_home(message, state, course_id)
+        if course is None:
+            return
         if message.text == labels.back:
             await coordinator.cancel_active_delivery(state)
             await render_course(message, state, course_id)
             return
-        if message.text == labels.retry and data.get("retry_request"):
+        if message.text == labels.retry and session.retry_request is not None:
             await run_retry(message, state)
             return
         action = category_slug_from_label(message.text or "", course.more_files_actions)
@@ -547,20 +591,20 @@ def register_handlers(
     async def week_category_state(message: types.Message, state: FSMContext) -> None:
         if await handle_main_menu(message, state):
             return
-        data = await state.get_data()
         session = await get_session(state)
         course_id = session.course_id
         week_number = session.week_number
         if not course_id or week_number is None:
             await render_home(message, state)
             return
-        course = repository.get_course(course_id)
-        assert course is not None
+        course = await get_course_or_home(message, state, course_id)
+        if course is None:
+            return
         if message.text == labels.back:
             await coordinator.cancel_active_delivery(state)
             await render_week_list(message, state, course_id)
             return
-        if message.text == labels.retry and data.get("retry_request"):
+        if message.text == labels.retry and session.retry_request is not None:
             await run_retry(message, state)
             return
         action = category_slug_from_label(message.text or "", course.week_actions)

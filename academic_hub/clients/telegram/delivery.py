@@ -17,6 +17,10 @@ from academic_hub.utils.logging import LogCategory, log_event
 log = logging.getLogger(__name__)
 
 
+def _path_key(path: Path) -> str:
+    return path.resolve().as_posix()
+
+
 class DeliveryCoordinator:
     def __init__(self, *, max_attempts: int = 2, send_delay_seconds: float = 0.3) -> None:
         self.max_attempts = max_attempts
@@ -54,7 +58,7 @@ class DeliveryCoordinator:
                 await self._clear_delivery_state(state, delivery_id)
                 return SendOutcome(sent_count=sent_count, failed_items=tuple(failed_items), cancelled=True)
 
-            path_key = str(item.path.resolve())
+            path_key = _path_key(item.path)
             if path_key in sent_paths or path_key in session.delivery.sent_paths:
                 continue
 
@@ -77,7 +81,7 @@ class DeliveryCoordinator:
                     state,
                     delivery_id,
                     sent_paths=sent_paths,
-                    failed_paths={str(path.resolve()) for path in (failed.path for failed in failed_items)},
+                    failed_paths={_path_key(failed.path) for failed in failed_items},
                 )
 
             await asyncio.sleep(self.send_delay_seconds)
@@ -125,6 +129,17 @@ class DeliveryCoordinator:
                     detail=str(exc),
                 )
                 await asyncio.sleep(self.send_delay_seconds)
+            except OSError as exc:
+                log_event(
+                    log,
+                    logging.WARNING,
+                    LogCategory.SEND_FAIL,
+                    "File delivery failed before upload.",
+                    path=str(item.path),
+                    attempt=attempt,
+                    detail=str(exc),
+                )
+                return False
         return False
 
     async def _notify_cancel_once(self, message: Message, state: FSMContext) -> None:
