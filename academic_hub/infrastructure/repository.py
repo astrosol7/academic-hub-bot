@@ -17,7 +17,6 @@ from academic_hub.infrastructure.loader import load_category_registry, load_cour
 from academic_hub.infrastructure.validation import RepositoryValidator
 from academic_hub.utils.parsing import (
     canonical_week_folder,
-    generate_caption,
     humanize_file_label,
     infer_category_slug,
     looks_like_syllabus,
@@ -124,8 +123,8 @@ class FilesystemContentRepository:
         except Exception:
             pass
 
-    def _get_cached_meta(self, path: Path, course_title: str, category_label: str, week_number: int | None) -> tuple[str, str, str]:
-        # Returns (label, caption, file_hash)
+    def _get_cached_meta(self, path: Path, course_title: str, category_label: str, week_number: int | None) -> tuple[str, str]:
+        # Returns (label, file_hash)
         try:
             mtime = str(path.stat().st_mtime)
         except OSError:
@@ -135,21 +134,19 @@ class FilesystemContentRepository:
         cached = self._meta_cache.get(path_key)
         
         if cached and cached.get("mtime") == mtime and cached.get("course_title") == course_title and cached.get("category_label") == category_label and cached.get("week_number") == week_number:
-            return cached["label"], cached["caption"], mtime
+            return cached["label"], mtime
 
         # Recompute
         label = humanize_file_label(path.stem)
-        caption = generate_caption(course_title, category_label, week_number, path.stem)
         
         self._meta_cache[path_key] = {
             "mtime": mtime,
             "label": label,
-            "caption": caption,
             "course_title": course_title,
             "category_label": category_label,
             "week_number": week_number
         }
-        return label, caption, mtime
+        return label, mtime
 
     def _index_course(self, course: CourseManifest) -> None:
         course_dir = self.resources_root / f"Quarter_{course.quarter}" / course.folder
@@ -172,13 +169,12 @@ class FilesystemContentRepository:
                     seen.add(resolved)
                     self._indexed_paths.add(resolved)
                     
-                    label, caption, mtime = self._get_cached_meta(path, course.title, category.label, None)
+                    label, mtime = self._get_cached_meta(path, course.title, category.label, None)
                     
                     files.append(
                         ResourceFile(
                             path=path,
                             label=label,
-                            caption=caption,
                             course_id=course.id,
                             category_slug=category.slug,
                             source_hint=folder_name,
@@ -205,12 +201,11 @@ class FilesystemContentRepository:
                 if inferred not in self.categories:
                     inferred = "readings"
                     
-                label, caption, mtime = self._get_cached_meta(path, course.title, self.categories[inferred].label, week_number)
+                label, mtime = self._get_cached_meta(path, course.title, self.categories[inferred].label, week_number)
                     
                 resource = ResourceFile(
                     path=path,
                     label=label,
-                    caption=caption,
                     course_id=course.id,
                     category_slug=inferred,
                     week_number=week_number,

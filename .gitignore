@@ -1,10 +1,43 @@
+# Environments & Secrets
 .env
-.venv/
+.env.*
+.venv
+env/
 venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Databases & Local Data
+*.sqlite3
+*.db
+docker-compose.override.yml
+
+# Student Records (NEVER push)
+SIT_Student_Database.csv
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+
+# Resources (large binary assets)
 resources/
 lms/pdfs/
+
+# IDE
 .vscode/
+.idea/
+
+# Node (dashboard)
 node_modules/
-package.json
-package-lock.json
+dashboard/dist/
+dashboard/node_modules/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# JWT / Auth secrets
+*.pem
+*.key

@@ -13,4 +13,4 @@ class HubStates(StatesGroup):
     report = State()
     report_description = State()
     search = State()
-
+    suggest = State()

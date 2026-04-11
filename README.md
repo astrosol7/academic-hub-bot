@@ -1,166 +1,118 @@
-# Academic Hub Bot
+# 🪐 Academic Hub — Orbit Release (v1.0)
 
-Academic Hub Bot is a Telegram bot for browsing institution-specific course materials from a manifest-driven resource library. The project has been migrated to the `academic_hub/` package structure, so the old root-level bot modules are no longer the primary application entry point.
+[![Stability: Production](https://img.shields.io/badge/Stability-Production-emerald.svg)](https://github.com/astrosol7/academic-hub-bot)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Engine: PostgreSQL](https://img.shields.io/badge/Engine-PostgreSQL-336791.svg)](https://www.postgresql.org/)
 
-## Features
+The **Academic Hub** is a high-performance, search-driven academic retrieval engine. It transforms fragmented institutional resources into a structured, searchable, and secure knowledge graph accessible via Telegram and managed through a premium administrative dashboard.
 
-- Institution-aware resource browsing
-- Manifest-driven categories, courses, and metadata
-- Telegram inline navigation and document delivery
-- Repository validation during startup
-- Structured logging for warnings, validation issues, and runtime events
-- Tools for ingesting, migrating, organizing, and validating resource files
+---
 
-## Current Architecture
+## 🏛 System Architecture
 
-The active application lives under `academic_hub/`:
+The Orbit Release marks the transition from a prototype to a **distributed intelligence system**.
 
-```text
-academic_hub/
-  app.py                       # Main runtime entry point
-  config.py                    # Environment/config loading
-  clients/telegram/            # Telegram UI, handlers, keyboards, sessions
-  domain/                      # Core models, service contracts, business logic
-  infrastructure/              # Manifest loading, repository, validation
-  manifests/                   # Institution/course/category definitions
-  utils/                       # Formatting, parsing, logging helpers
+| Component | Responsibility | Stack |
+|:--- |:--- |:--- |
+| **Telegram UI** | High-concurrency user interface & delivery | Aiogram 3, FSM, Asyncio |
+| **FastAPI Gateway** | Auth, Ingestion API, Search Bridge | FastAPI, SQLAlchemy, Pydantic |
+| **PostgreSQL Core** | Relational brain & telemetry storage | Postgres 16, pg_trgm, TSVector |
+| **Orbit Dashboard** | Multi-tenant governance & Incident War Room | React, Vite, Lucide, Tailwind v4 |
+
+### 🔍 Intelligence Flow
+1. **Request**: User types "Calculus 1 lecture notes" in Telegram.
+2. **Analysis**: Bot classifies intent and calls the **FastAPI Search Bridge**.
+3. **Retrieval**: Gateway queries PostgreSQL using **TSVector (Exact)** + **Trigram (Fuzzy)** ranking.
+4. **Delivery**: Bot delivers structured materials with atomic progress tracking.
+5. **Telemetry**: Behavioral signals are flushed to `usage_signals` for future AI training.
+
+---
+
+## 🍼 Quick Start (The "Baby Guide")
+
+If you are new to this, just follow these exact steps. Do not skip any!
+
+### Step 1: Open your Terminal
+Open your terminal (PowerShell or Command Prompt) and move into the project folder.
+
+### Step 2: Create a Secret Room (Virtual Environment)
+This keeps the project's tools separate from your computer's tools.
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-High-level flow:
-
-1. `academic_hub.app` loads configuration
-2. `FilesystemContentRepository` builds and validates the in-memory index
-3. Telegram dispatcher and handlers are created from `academic_hub.clients.telegram`
-4. The bot starts polling and serves documents from `resources/`
-
-## Project Structure
-
-```text
-academic-hub-bot/
-  academic_hub/
-  resources/
-    institutions/
-      sit/
-        Quarter_1/
-        Quarter_2/
-  tests/
-  tools/
-  README.md
+### Step 3: Tell the System your Secrets
+Create a file named `.env` in the main folder and paste this in (replace the values with your actual keys):
+```env
+TELEGRAM_BOT_TOKEN="your_bot_token_from_botfather"
+DATABASE_URL="postgresql://postgres:password@localhost:5432/academic_hub"
+BOOTSTRAP_ROOT_PASSWORD="PickAStrongPassword"
+JWT_SECRET="MakeUpALongRandomString"
 ```
 
-Legacy root-level files from the earlier single-module layout may still exist temporarily during migration, but the package-based structure above is the maintained implementation.
+### Step 4: Wake up the Database
+If you have Docker, run:
+```powershell
+docker-compose up -d
+```
 
-## Requirements
-
-- Python 3.10+
-- Telegram bot token from [@BotFather](https://t.me/BotFather)
-
-## Setup
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/astrosol7/academic-hub-bot.git
-   cd academic-hub-bot
-   ```
-
-2. Create and activate a virtual environment:
-
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate
-   ```
-
-   On Linux/macOS:
-
-   ```bash
-   source .venv/bin/activate
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   pip install aiogram python-dotenv
-   ```
-
-4. Create a `.env` file in the project root:
-
-   ```env
-   TELEGRAM_BOT_TOKEN=your_token_here
-   HUB_INSTITUTION_SLUG=sit
-   HUB_INSTITUTION_NAME=Shaggar Institute of Technology
-   ACADEMIC_HUB_LOG_LEVEL=INFO
-   ACADEMIC_HUB_MAX_INDEX_MEMORY_MB=32
-   ```
-
-5. Add your documents under:
-
-   ```text
-   resources/institutions/<institution_slug>/
-   ```
-
-## Running the Bot
-
-Run the package entry point:
-
-```bash
+### Step 5: Start the Bot (The Face)
+In your first terminal, run:
+```powershell
 python -m academic_hub.app
 ```
 
-## Resource and Manifest Model
+### Step 6: Start the Dashboard (The Control Room)
+Open a **second terminal**, go into the `dashboard` folder, and run:
+```powershell
+cd dashboard
+npm install
+npm run dev
+```
 
-The bot expects two main data sources:
+### Step 7: Give yourself "Super Power" (Admin Setup)
+The very first time you use the system, you must create your Admin account. Open a **third terminal** and run:
+```powershell
+curl -X POST http://localhost:8000/api/v1/auth/bootstrap `
+  -H "Content-Type: application/json" `
+  -d '{"username": "admin", "password": "ThePasswordYouPickedInStep3"}'
+```
+*Wait! If you see a success message, you are now the boss. The "bootstrap" button is now locked forever for safety.*
 
-- `academic_hub/manifests/` for institution, course, and category definitions
-- `resources/institutions/<slug>/` for the actual PDF/resource files
+---
 
-Example resource layout:
+## 🔒 Security & Hardening
 
+Orbit v1 is designed to be **unbreakable** under standard academic operation.
+
+*   **Zero Leakage**: All sensitive keys (`.env`, JWT) and heavy assets are strictly blocked via `.gitignore`.
+*   **HTML Sanitization**: Every user-generated string is escaped before rendering to prevent Telegram HTML injection.
+*   **Dual-Token Auth**: Dashboard sessions use short-lived Access Tokens (30m) and long-lived Refresh Tokens (7d).
+*   **CIS Gates**: The Controlled Ingestion System prevents "data poisoning" via strict schema validation and fuzzy duplicate detection.
+
+---
+
+## 📊 Behavioral Matrix (Telemetry)
+
+We don't just store files; we store **insights**.
+
+*   **Tier 1 (Raw)**: `usage_signals` — Every search, click, and navigation. (Pruned every 90 days).
+*   **Tier 2 (Aggregated)**: `usage_aggregates` — Search frequency and resource popularity.
+*   **Tier 3 (Permanent)**: `usage_insights` — Strategic data on material gaps and student needs.
+
+---
+
+## 📁 Repository Overview
 ```text
-resources/
-  institutions/
-    sit/
-      Quarter_1/
-        Calculus_I/
-        Physics_I/
-      Quarter_2/
-        Python/
-        Calculus_II/
+SIT_Academic_Hub_bot/
+├── academic_hub/     # The Telegram Engine (Intent, Delivery, UI)
+├── backend/          # The Brain (FastAPI, Auth, Ingest, Search)
+├── dashboard/        # The Control Tower (React/Vite Admin UI)
+├── resources/        # Local asset cache (Gitignored)
+├── .env              # Secrets (NEVER COMMIT)
+└── README.md         # This manual
 ```
 
-## Utility Scripts
-
-The repository includes helper scripts under `tools/` for migration and content maintenance:
-
-- `tools/organize_resource_pdfs.py`
-- `tools/ingest_lms_to_resources.py`
-- `tools/migrate_resources_layout.py`
-- `tools/validate_resources.py`
-- `tools/download_moodle_pdfs.py`
-
-Run a script directly with Python, for example:
-
-```bash
-python tools/validate_resources.py
-```
-
-## Testing
-
-Run the test suite with:
-
-```bash
-python -m pytest
-```
-
-## Contributing
-
-1. Create a feature branch
-2. Make and test your changes
-3. Commit with a clear message
-4. Open a pull request
-
-## License
-
-MIT License
-
-Copyright (c) 2025 Solomon Dawit
+**Orbit Release v1.0 — Stabilized, Integrated, Ready.**

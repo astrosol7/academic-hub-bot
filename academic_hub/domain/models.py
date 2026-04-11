@@ -111,6 +111,7 @@ class SessionSection(HubEnum):
     WEEK_CATEGORY = "week_category"
     ABOUT = "about"
     REPORT = "report"
+    SUGGEST = "suggest"
 
 
 class NavigationAction(HubEnum):
@@ -344,7 +345,6 @@ class ResourceFile(BaseModel):
 
     path: Path
     label: str
-    caption: str = ""
     course_id: str
     category_slug: str
     week_number: int | None = None
@@ -566,6 +566,7 @@ class TelegramSession(BaseModel):
     delivery_active: bool = False
     mode: SessionMode = SessionMode.HOME
     report_category: str | None = None
+    noise_count: int = 0
 
     @field_validator("course_id", "screen_key", mode="before")
     @classmethod

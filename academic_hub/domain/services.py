@@ -21,6 +21,7 @@ class ButtonLabels:
     by_week: str = "🗓 By week"
     retry: str = "🔁 Retry"
     exit_search: str = "⬅ Back"
+    suggest: str = "💡 Suggest"
 
 
 class NavigationService:
@@ -32,7 +33,7 @@ class NavigationService:
         return ScreenView(
             key="home",
             text="Academic Hub\n\nTap <b>Browse</b> or <b>Search</b> to find your course materials.",
-            button_rows=((self.labels.browse, self.labels.search), (self.labels.about, self.labels.report)),
+            button_rows=((self.labels.browse, self.labels.search), (self.labels.about, self.labels.report), (self.labels.suggest,)),
         )
 
     def resources(self) -> ScreenView:
@@ -204,6 +205,22 @@ class NavigationService:
             placeholder="Type your description...",
         )
 
+    def suggest_step(self) -> ScreenView:
+        return ScreenView(
+            key="suggest",
+            text=(
+                "<b>💡 Suggest Content</b>\n\n"
+                "Know a useful resource that's missing?\n\n"
+                "<b>Format:</b>\n"
+                "• Course name\n"
+                "• Week (if applicable)\n"
+                "• Description or Google Drive link\n\n"
+                "<i>Your suggestion will be reviewed by the admin team.</i>"
+            ),
+            button_rows=((self.labels.back,),),
+            placeholder="Describe the resource or paste a link...",
+        )
+
     def transition(self, state: TelegramSession, action: str) -> TelegramSession:
         state = state.model_copy(update={"delivery_active": False})
         
@@ -274,6 +291,12 @@ class NavigationService:
                 "mode": SessionMode.REPORT,
                 "report_category": val
             })
+        elif cmd == "suggest":
+            state = state.model_copy(update={
+                "level": "home",
+                "section": "suggest",
+                "mode": SessionMode.REPORT,
+            })
         elif cmd == "select_quarter":
             state = state.model_copy(update={
                 "level": "quarter", 
@@ -310,13 +333,11 @@ class NavigationService:
             return self.report_step_1()
         if session.section == "report_2" and session.report_category:
             return self.report_step_2(session.report_category)
+        if session.section == "suggest":
+            return self.suggest_step()
             
         if session.level == "home":
-            return ScreenView(
-                key="home",
-                text="Academic Hub\n\nTap <b>Browse</b> or <b>Search</b> to find your course materials.",
-                button_rows=((self.labels.browse, self.labels.search), (self.labels.about, self.labels.report)),
-            )
+            return self.home()
 
         if session.level == "resources":
             return self.resources()

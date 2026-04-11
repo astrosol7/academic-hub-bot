@@ -4,6 +4,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Any
+import html
 
 from aiogram import Dispatcher, Router, types
 from aiogram.filters import Command, CommandStart
@@ -14,9 +15,10 @@ from academic_hub.clients.telegram.managers.tasks import task_registry
 from academic_hub.clients.telegram.renderer import TelegramRenderer
 from academic_hub.clients.telegram.session import load_session, save_session
 from academic_hub.clients.telegram.state import HubStates
-from academic_hub.domain.models import RetryRequest, SessionMode, TelegramSession
+from academic_hub.domain.models import DeliveryScope, RetryRequest, SessionMode, TelegramSession
 from academic_hub.domain.services import ButtonLabels, DeliveryService, NavigationService, SearchService
 from academic_hub.infrastructure.repository import FilesystemContentRepository
+from academic_hub.utils.intent import IntentDecision, classify_intent
 from academic_hub.utils.logging import LogCategory, log_event
 
 log = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ _STATE_MAP = {
     "report_1": HubStates.report,
     "report_2": HubStates.report_description,
     "search_intro": HubStates.search,
+    "suggest": HubStates.suggest,
     "more_files": HubStates.more_files,
     "week_list": HubStates.week_list,
     "week_category": HubStates.week_category,
@@ -159,6 +162,9 @@ def register_handlers(
         if text == labels.report:
             await navigate(message, state, "nav:report")
             return
+        if text == labels.suggest:
+            await navigate(message, state, "nav:suggest")
+            return
         if text == labels.retry and session.retry_request:
             await handle_retry(message, state, session)
             return
@@ -177,6 +183,9 @@ def register_handlers(
                 return
             elif session.section == "report_2" and session.report_category:
                 await handle_report_description(message, state, text)
+                return
+            elif session.section == "suggest":
+                await handle_suggestion(message, state, text)
                 return
 
         # 4. NAVIGATION LEVELS (Only for BROWSE)
@@ -233,29 +242,49 @@ def register_handlers(
                                 matched_button = True
 
             if not matched_button:
-                await message.answer(
-                    "💡 <b>I don't understand that command.</b>\n\n"
-                    "• Tap <b>📚 Browse Subjects</b> to use menus\n"
-                    "• Tap <b>🔍 Search</b> for free-text search",
-                    parse_mode="HTML"
-                )
+                # 5. INTENT CLASSIFIER / FALLBACK (Algorithm Traffic Controller)
+                decision, n_score, s_score = classify_intent(text)
+
+                if decision == IntentDecision.SEARCH or decision == IntentDecision.UNKNOWN:
+                    # Reset strikes and enforce Universal Search 
+                    updated = session.model_copy(update={"noise_count": 0})
+                    await save_session(state, updated)
+                    await handle_search_mode(message, state, text)
+                else: # IntentDecision.NOISE
+                    new_count = session.noise_count + 1
+                    updated = session.model_copy(update={"noise_count": new_count})
+                    await save_session(state, updated)
+                    
+                    if new_count >= 3:
+                        # Escalation: 3+ Strikes routes to Search Intro politely
+                        updated = updated.model_copy(update={"noise_count": 0})
+                        await save_session(state, updated)
+                        await navigate(message, state, "nav:search")
+                        await message.answer("💡 It seems you're having trouble. You are now in Search Mode. Please type academic keywords (like 'physics week 1').")
+                    else:
+                        # Soft Redirect
+                        await message.answer(f"💡 Unrecognized command: <code>{html.escape(text[:20])}</code>. Please use the Menu buttons or type academic keywords to search.", parse_mode="HTML")
 
     # ── FEATURE HANDLERS ────────────────────────────────────────────
 
     async def _run_delivery_task(
         user_id: int, message: types.Message, state: FSMContext, 
-        files: list[Any], original_exec_id: int, retry_setup: dict
+        files: list[Any], original_exec_id: int, retry_setup: dict, batch_caption: str
     ) -> None:
         """Isolated Delivery Coroutine executed in background."""
         outcome = await coordinator.send_bundle(
-            message, state, files, original_execution_id=original_exec_id
+            message, state, files, original_execution_id=original_exec_id,
+            phase_label=batch_caption
         )
         if not outcome.cancelled and outcome.failed_items:
             session = await load_session(state)
             if session.execution_id == original_exec_id:
                 req = RetryRequest(
                     failed_paths=tuple(str(item.path) for item in outcome.failed_items),
-                    **retry_setup
+                    scope=DeliveryScope.COURSE if retry_setup.get("action") == "course_category" else DeliveryScope.WEEK,
+                    course_id=retry_setup["course_id"],
+                    category_slug=retry_setup["category_slug"],
+                    week_number=retry_setup.get("week_number"),
                 )
                 await save_session(state, session.model_copy(update={"retry_request": req}))
                 await renderer.render(message, state, navigation.render_screen(await load_session(state)))
@@ -266,10 +295,17 @@ def register_handlers(
             await message.answer(EMPTY_MESSAGE)
             return
             
+        course = repository.get_course(course_id)
+        if not course: return
+        category = repository.categories.get(category_slug)
+        if not category: return
+        batch_caption = TelegramRenderer.build_batch_caption(course, category)
+        
         session = await load_session(state)
         coro = _run_delivery_task(
             session.user_id, message, state, files, session.execution_id,
-            {"action": "course_category", "course_id": course_id, "category_slug": category_slug}
+            {"action": "course_category", "course_id": course_id, "category_slug": category_slug},
+            batch_caption
         )
         task_registry.register(session.user_id, "delivery", asyncio.create_task(coro))
 
@@ -279,27 +315,92 @@ def register_handlers(
             await message.answer(EMPTY_MESSAGE)
             return
             
+        course = repository.get_course(course_id)
+        if not course: return
+        category = repository.categories.get(category_slug)
+        if not category: return
+        batch_caption = TelegramRenderer.build_batch_caption(course, category, week)
+        
         session = await load_session(state)
         coro = _run_delivery_task(
             session.user_id, message, state, files, session.execution_id,
-            {"action": "week_category", "course_id": course_id, "week_number": week, "category_slug": category_slug}
+            {"action": "week_category", "course_id": course_id, "week_number": week, "category_slug": category_slug},
+            batch_caption
         )
         task_registry.register(session.user_id, "delivery", asyncio.create_task(coro))
 
+    async def _fire_telemetry(user_id: int, action: str, metadata: dict) -> None:
+        """Non-blocking telemetry push to FastAPI. Never crashes the bot."""
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                await client.post(
+                    "http://127.0.0.1:8000/api/v1/telemetry",
+                    json={"user_id": str(user_id), "action": action, "metadata": metadata}
+                )
+        except Exception:
+            pass  # Telemetry is best-effort, never block the user
+
     async def handle_search_mode(message: types.Message, state: FSMContext, text: str) -> None:
-        resolution = search.resolve(text)
-        
         session = await load_session(state)
         task_registry.cancel(session.user_id, "delivery")
 
+        # ── ENGINE 1: HTTP Bridge to FastAPI (PostgreSQL TSVector + pg_trgm) ──
+        engine_used = "fs_fallback_hit"
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.post(
+                    "http://127.0.0.1:8000/api/v1/search",
+                    json={"query": text, "user_id": str(session.user_id)}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("results"):
+                        engine_used = data.get("engine", "tsquery_hit")
+                        log_event(
+                            log, logging.INFO, LogCategory.SEARCH_DB_HIT,
+                            "Search resolved via PostgreSQL.",
+                            user_id=session.user_id, query=text,
+                            engine=engine_used, result_count=len(data["results"])
+                        )
+                        # For V1: DB results are informational — we still resolve via filesystem
+                        # because the DB may not have file paths for delivery yet
+        except Exception:
+            pass  # API not running or DB empty — proceed to filesystem
+
+        # ── ENGINE 2: Filesystem Index (Primary delivery engine for V1) ──
+        resolution = search.resolve(text)
+
         if resolution.kind == "match" and resolution.result:
+            log_event(
+                log, logging.INFO, LogCategory.SEARCH_FS_FALLBACK,
+                "Search resolved via filesystem index.",
+                user_id=session.user_id, query=text,
+                course_id=resolution.result.course_id,
+                score=resolution.result.score,
+                engine=engine_used
+            )
             res = resolution.result
             if res.action == "send_course_category":
                 await handle_delivery(message, state, res.course_id, res.category_slug)
             elif res.action == "send_week_category" and res.week_number:
                 await handle_delivery_week(message, state, res.course_id, res.week_number, res.category_slug)
         else:
-            await message.answer(f"🔍 <b>Search Result</b>\n\n{resolution.message}", parse_mode="HTML")
+            log_event(
+                log, logging.WARNING, LogCategory.SEARCH_FAILED,
+                "Search returned 0 results from all engines.",
+                user_id=session.user_id, query=text,
+                resolution_kind=resolution.kind
+            )
+            safe_msg = html.escape(resolution.message)
+            await message.answer(f"🔍 <b>Search Result</b>\n\n{safe_msg}", parse_mode="HTML")
+
+        # ── TELEMETRY: Fire async (non-blocking) ──
+        asyncio.create_task(_fire_telemetry(
+            session.user_id, "search",
+            {"query": text, "engine": engine_used, "matched": resolution.kind == "match"}
+        ))
 
     async def handle_report_description(message: types.Message, state: FSMContext, text: str) -> None:
         if len(text.strip()) < 5:
@@ -320,8 +421,70 @@ def register_handlers(
             course_context=session.course_id,
             section_context=session.section
         )
+
+        admin_id = 2113497563 # @astrosol7 ID for Orbit Release
+        
+        course_slug = html.escape(session.course_id or "General")
+        safe_cat = html.escape(session.report_category or "Unknown")
+        safe_text = html.escape(text)
+        
+        report_text = (
+            f"⚠️ <b>New Issue Reported [OPEN]</b>\n"
+            f"<b>Category:</b> {safe_cat}\n"
+            f"<b>Course:</b> {course_slug}\n"
+            f"<b>User ID:</b> {session.user_id}\n\n"
+            f"<b>Description:</b>\n<i>{safe_text}</i>"
+        )
+        
+        try:
+            await message.bot.send_message(
+                chat_id=admin_id,
+                text=report_text,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            log.warning(f"Failed to forward report to admin {admin_id}: {e}")
         
         await message.answer("✅ <b>Report received.</b> Thank you for helping us improve!")
+        await navigate(message, state, "nav:main")
+
+    async def handle_suggestion(message: types.Message, state: FSMContext, text: str) -> None:
+        if len(text.strip()) < 5:
+            await message.answer("⚠️ <b>Suggestion too short.</b> Please describe the resource you'd like us to add.")
+            return
+
+        session = await load_session(state)
+        task_registry.cancel(session.user_id, "delivery")
+
+        log_event(
+            log,
+            logging.INFO,
+            LogCategory.USER_SUGGESTION,
+            "Content suggestion submitted.",
+            user_id=session.user_id,
+            description=text,
+            course_context=session.course_id,
+        )
+
+        admin_id = 2113497563
+
+        safe_text = html.escape(text)
+        suggestion_text = (
+            f"💡 <b>New Content Suggestion</b>\n"
+            f"<b>User ID:</b> {session.user_id}\n\n"
+            f"<b>Suggestion:</b>\n<i>{safe_text}</i>"
+        )
+
+        try:
+            await message.bot.send_message(
+                chat_id=admin_id,
+                text=suggestion_text,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            log.warning(f"Failed to forward suggestion to admin {admin_id}: {e}")
+
+        await message.answer("✅ <b>Suggestion received.</b> We'll review it and add it if valid. Thank you!")
         await navigate(message, state, "nav:main")
 
     async def handle_retry(message: types.Message, state: FSMContext, session: TelegramSession) -> None:
@@ -331,7 +494,7 @@ def register_handlers(
         req = session.retry_request
         failed_paths = {str(p) for p in req.failed_paths}
         
-        if req.action == "course_category":
+        if req.scope == DeliveryScope.COURSE:
             all_files = delivery.bundle_for_course_category(req.course_id, req.category_slug)
             retry_setup = {"action": "course_category", "course_id": req.course_id, "category_slug": req.category_slug}
         else:
@@ -340,8 +503,12 @@ def register_handlers(
             
         retry_files = [f for f in all_files if str(f.path) in failed_paths]
         
+        course = repository.get_course(req.course_id)
+        category = repository.categories.get(req.category_slug)
+        batch_caption = TelegramRenderer.build_batch_caption(course, category, req.week_number) if course and category else "📦 <b>Retrying delivery...</b>"
+        
         coro = _run_delivery_task(
-            session.user_id, message, state, retry_files, session.execution_id, retry_setup
+            session.user_id, message, state, retry_files, session.execution_id, retry_setup, batch_caption
         )
         task_registry.register(session.user_id, "delivery", asyncio.create_task(coro))
 

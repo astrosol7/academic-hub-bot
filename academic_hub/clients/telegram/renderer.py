@@ -9,7 +9,7 @@ from aiogram.types import Message
 
 from academic_hub.clients.telegram.keyboards import build_reply_keyboard
 from academic_hub.clients.telegram.session import load_session, save_session
-from academic_hub.domain.models import ScreenView
+from academic_hub.domain.models import ScreenView, CourseManifest, CategoryDefinition
 from academic_hub.utils.logging import LogCategory, log_event
 
 
@@ -19,6 +19,17 @@ log = logging.getLogger(__name__)
 class TelegramRenderer:
     def __init__(self, bot: Bot) -> None:
         self.bot = bot
+
+    @staticmethod
+    def build_batch_caption(course: CourseManifest, category: CategoryDefinition, week_number: int | None = None) -> str:
+        lines = [
+            f"📘 <b>{course.title}</b>",
+            f"📂 {category.label}",
+        ]
+        if week_number:
+            lines.append(f"📅 Week {week_number}")
+        
+        return "\n".join(lines)
 
     async def render(self, message: Message, state: FSMContext, screen: ScreenView) -> Message:
         """Render a screen. Rules:

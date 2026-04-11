@@ -75,15 +75,21 @@ class DeliveryCoordinator:
                     if session.delivery and session.delivery.cancel_requested:
                         await self._notify_cancel_once(trigger_message, state)
                     return SendOutcome(sent_count=sent_count, failed_items=tuple(failed_items), cancelled=True)
+                 
+                # Double-tap verification check
+                if session.delivery and session.delivery.cancel_requested:
+                    await self._notify_cancel_once(trigger_message, state)
+                    return SendOutcome(sent_count=sent_count, failed_items=tuple(failed_items), cancelled=True)
 
                 path_key = _path_key(item.path)
                 if path_key in sent_paths or path_key in session.delivery.sent_paths:
                     continue
 
                 dots = "." * ((index - 1) % 3 + 1)
+                progress_text = f"{phase_label}\n\n📤 <b>Sending files ({index}/{len(items)}){dots}</b>\n<i>Interrupting will stop current batch.</i>"
                 await self._safe_edit(
                     status_message, 
-                    f"📤 <b>Sending files ({index}/{len(items)}){dots}</b>\n<i>Interrupting will stop current batch.</i>"
+                    progress_text
                 )
 
                 if await self._send_file(trigger_message, item):
@@ -130,11 +136,9 @@ class DeliveryCoordinator:
     async def _send_file(self, message: Message, item: ResourceFile) -> bool:
         for attempt in range(1, self.max_attempts + 1):
             try:
-                # Use item.caption (which we populated during indexing) or fallback to label
-                caption = item.caption if hasattr(item, "caption") and item.caption else item.label
+                # Sprint 1: Renderers will own captions completely in Sprint 3
                 await message.answer_document(
-                    FSInputFile(item.path),
-                    caption=caption[:1024],
+                    FSInputFile(item.path)
                 )
                 return True
             except TelegramRetryAfter as exc:
