@@ -9,6 +9,8 @@ from aiogram.types import BotCommand
 from academic_hub.clients.telegram.delivery import DeliveryCoordinator
 from academic_hub.clients.telegram.handlers import register_handlers
 from academic_hub.clients.telegram.renderer import TelegramRenderer
+from academic_hub.clients.telegram.middlewares.concurrency import ConcurrencyGuardMiddleware
+from academic_hub.clients.telegram.managers.sweeper import MemorySweeper
 from academic_hub.domain.services import DeliveryService, NavigationService, SearchService
 from academic_hub.infrastructure.repository import FilesystemContentRepository
 
@@ -18,6 +20,9 @@ log = logging.getLogger(__name__)
 
 def build_dispatcher(bot: Bot, repository: FilesystemContentRepository) -> Dispatcher:
     dispatcher = Dispatcher(storage=MemoryStorage())
+    # Register core execution safety lock 
+    dispatcher.update.middleware(ConcurrencyGuardMiddleware())
+    
     renderer = TelegramRenderer(bot)
     navigation = NavigationService(repository)
     delivery = DeliveryService(repository)
@@ -27,7 +32,7 @@ def build_dispatcher(bot: Bot, repository: FilesystemContentRepository) -> Dispa
     return dispatcher
 
 
-async def configure_bot(bot: Bot) -> None:
+async def configure_bot(bot: Bot, dispatcher: Dispatcher) -> MemorySweeper:
     await bot.set_my_commands(
         [
             BotCommand(command="start", description="Start"),
@@ -35,4 +40,8 @@ async def configure_bot(bot: Bot) -> None:
             BotCommand(command="help", description="Help"),
         ]
     )
+    
+    sweeper = MemorySweeper(dispatcher, bot, ttl_minutes=30.0, sweep_interval_minutes=10.0)
+    
     log.info("event=bot_configured")
+    return sweeper

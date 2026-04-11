@@ -15,7 +15,11 @@ class LogCategory(str, Enum):
     USER_REPORT = "USER_REPORT"
     SYSTEM_ORPHAN = "SYSTEM_ORPHAN"
     SYSTEM_WARNING = "SYSTEM_WARNING"
-    DELIVERY_CANCEL = "DELIVERY_CANCEL"
+    DELIVERY_CANCEL = "delivery_cancel"
+    # Execution Safety
+    SYSTEM_DROPPED_EVENT = "system_dropped_event"
+    SYSTEM_TOKEN_MISMATCH = "system_token_mismatch"
+    SYSTEM_TASK_KILLED = "system_task_killed"
     SCREEN = "SCREEN"
 
 

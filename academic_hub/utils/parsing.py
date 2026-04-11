@@ -61,6 +61,7 @@ def looks_like_syllabus(path: Path | str) -> bool:
 
 
 def humanize_file_label(stem: str) -> str:
+    # Remove course prefixes like CALC1_Q1_...
     value = COURSE_PREFIX_RE.sub("", stem)
     while True:
         updated = GENERIC_PREFIX_RE.sub("", value)
@@ -68,10 +69,46 @@ def humanize_file_label(stem: str) -> str:
         if updated == value:
             break
         value = updated
-    value = re.sub(r"_(?:dup\d+|docx|pptx|pdf)$", "", value, flags=re.I)
+    
+    # Remove standard extensions and version suffixes
+    value = re.sub(r"_(?:dup\d+|docx|pptx|pdf|v\d+.*)$", "", value, flags=re.I)
     value = value.replace("_", " ")
+    
+    # Remove year patterns if they are isolated (e.g. 2023) to keep title clean
+    # but maybe keep it if it's the only info? No, user wants year in caption.
+    # We'll extract year in generate_caption.
+    
     value = re.sub(r"\s+", " ", value).strip(" -_")
-    return value or stem.replace("_", " ")
+    return value.title() or stem.replace("_", " ").title()
+
+
+def generate_caption(
+    course_title: str, 
+    category_label: str, 
+    week_number: int | None, 
+    stem: str,
+    *,
+    year: str | None = None
+) -> str:
+    """Generate a premium structured caption for a resource file."""
+    parts = [f"📘 {course_title}", f"📂 {category_label}"]
+    if week_number:
+        parts.append(f"📅 Week {week_number}")
+    
+    title = humanize_file_label(stem)
+    
+    # Try to extract year if not provided
+    if not year:
+        year_match = re.search(r"\b(20\d{2})\b", stem)
+        if year_match:
+            year = year_match.group(1)
+    
+    if year:
+        parts.append(f"🧾 {title} ({year})")
+    else:
+        parts.append(f"🧾 {title}")
+        
+    return "\n".join(parts)
 
 
 def infer_category_slug(path: Path, *, default_slug: str = "readings") -> str:

@@ -21,17 +21,25 @@ class TelegramRenderer:
         self.bot = bot
 
     async def render(self, message: Message, state: FSMContext, screen: ScreenView) -> Message:
+        """Render a screen. Rules:
+        1. Delete ALL transient messages (status updates like "Sending...")
+        2. NEVER delete the screen_message_id (the keyboard carrier)
+        3. Send ONE new message with the keyboard
+        """
         session = await load_session(state)
+
+        # Step 1: Clean transient messages ONLY
         for transient_id in session.transient_messages:
             await self._safe_delete(message.chat.id, transient_id)
 
-        if session.screen_message_id:
-            await self._safe_delete(message.chat.id, session.screen_message_id)
-
+        # Step 2: Send the new screen message with keyboard
         sent = await message.answer(
             screen.text,
             reply_markup=build_reply_keyboard(screen.button_rows, placeholder=screen.placeholder),
+            parse_mode="HTML",
         )
+
+        # Step 3: Save state — new screen_message_id, clear transients
         updated = session.model_copy(
             update={
                 "screen_message_id": sent.message_id,

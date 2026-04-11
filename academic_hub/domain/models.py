@@ -94,6 +94,13 @@ class SessionLevel(HubEnum):
     COURSE = "course"
 
 
+class SessionMode(HubEnum):
+    HOME = "home"
+    BROWSE = "browse"
+    SEARCH = "search"
+    REPORT = "report"
+
+
 class SessionSection(HubEnum):
     HOME = "home"
     RESOURCES = "resources"
@@ -102,6 +109,8 @@ class SessionSection(HubEnum):
     MORE_FILES = "more_files"
     WEEK_LIST = "week_list"
     WEEK_CATEGORY = "week_category"
+    ABOUT = "about"
+    REPORT = "report"
 
 
 class NavigationAction(HubEnum):
@@ -335,10 +344,12 @@ class ResourceFile(BaseModel):
 
     path: Path
     label: str
+    caption: str = ""
     course_id: str
     category_slug: str
     week_number: int | None = None
     source_hint: str = ""
+    file_hash: str = ""
 
     @field_validator("label", "source_hint", mode="before")
     @classmethod
@@ -538,6 +549,8 @@ class DeliverySession(BaseModel):
 class TelegramSession(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    user_id: int = 0
+    chat_id: int = 0
     level: SessionLevel = SessionLevel.HOME
     quarter: int | None = None
     course_id: str | None = None
@@ -547,7 +560,12 @@ class TelegramSession(BaseModel):
     screen_key: str | None = None
     transient_messages: tuple[int, ...] = ()
     retry_request: RetryRequest | None = None
+    execution_id: int = 0
     delivery: DeliverySession | None = None
+    history: list[str] = Field(default_factory=lambda: ["nav:main"])
+    delivery_active: bool = False
+    mode: SessionMode = SessionMode.HOME
+    report_category: str | None = None
 
     @field_validator("course_id", "screen_key", mode="before")
     @classmethod
