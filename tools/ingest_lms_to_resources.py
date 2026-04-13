@@ -24,37 +24,26 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from hub_institution import INSTITUTION_SLUG, resources_root
+from academic_hub.config import load_config
 
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv(ROOT_DIR / ".env")
-except ImportError:
-    pass
-
+config = load_config(require_token=False)
+INSTITUTION_SLUG = config.institution_slug
 LMS_ROOT = ROOT_DIR / "lms" / "pdfs"
-DEST_ROOT = resources_root()
+DEST_ROOT = config.resources_root
 
 COURSE_HINTS: list[tuple[str, str, str, int]] = [
-    ("calculus ii", "MATH_1120", "Calculus_II", 2),
-    ("calculus i", "MATH_1110", "Calculus_I", 1),
-    ("calculus", "MATH_1110", "Calculus_I", 1),
-    ("physics ii", "PHYS_1320", "Physics_II", 2),
-    ("physics i", "PHYS_1310", "Physics_I", 1),
-    ("physics", "PHYS_1310", "Physics_I", 1),
-    ("chemistry lab", "CHEML_1211", "Chemistry_Lab", 2),
-    ("cheml", "CHEML_1211", "Chemistry_Lab", 2),
-    ("chemistry i", "CHEM_1210", "Chemistry_I", 1),
-    ("chemistry", "CHEM_1210", "Chemistry_I", 1),
-    ("english composition", "ENGL_1610", "English_Composition", 1),
-    ("writing", "ENGL_1720", "Writing_Rhetoric_II", 2),
-    ("rhetoric", "ENGL_1720", "Writing_Rhetoric_II", 2),
-    ("python", "COMP_1210", "Python", 2),
-    ("comp_1210", "COMP_1210", "Python", 2),
-    ("seminar", "SEM_100", "Advising_Seminar", 2),
-    ("advising", "SEM_100", "Advising_Seminar", 2),
+    ("sit - mathemathics ii", "MATH_1120", "Calculus_II", 2),
+    ("sit - mathematics", "MATH_1110", "Calculus_I", 1),
+    ("sit - physics ii", "PHYS_1320", "Physics_II", 2),
+    ("sit - physcis", "PHYS_1310", "Physics_I", 1),
+    ("sit - chemistry lab", "CHEML_1211", "Chemistry_Lab", 2),
+    ("sit - chemistry", "CHEM_1210", "Chemistry_I", 1),
+    ("sit - programming in python", "COMP_1210", "Python", 2),
+    ("sit - english ii", "ENGL_1720", "Writing_Rhetoric_II", 2),
+    ("sit - english", "ENGL_1610", "English_Composition", 1),
+    ("sit - seminar", "SEM_100", "Advising_Seminar", 2),
 ]
+
 COURSE_HINTS.sort(key=lambda x: len(x[0]), reverse=True)
 
 SUBMISSION_RE = re.compile(

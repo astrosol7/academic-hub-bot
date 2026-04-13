@@ -77,7 +77,7 @@ async def main() -> None:
     bot = Bot(token=config.token)
     dispatcher = build_dispatcher(bot, repository)
 
-    await configure_bot(bot)
+    sweeper = await configure_bot(bot, dispatcher)
     log_event(
         logging.getLogger(__name__),
         logging.INFO,
@@ -86,11 +86,17 @@ async def main() -> None:
         institution=config.institution_slug,
         resources_root=str(config.resources_root),
     )
+    
+    sweeper.start()
     try:
         await dispatcher.start_polling(bot)
     finally:
+        await sweeper.stop()
         await bot.session.close()
 
 
 def run() -> None:
     asyncio.run(main())
+
+if __name__ == "__main__":
+    run()

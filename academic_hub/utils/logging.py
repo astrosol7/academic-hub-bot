@@ -9,13 +9,22 @@ from typing import Any
 class LogCategory(str, Enum):
     SEARCH_HIT = "SEARCH_HIT"
     SEARCH_MISS = "SEARCH_MISS"
+    SEARCH_DB_HIT = "SEARCH_DB_HIT"         # TSVector/trigram matched
+    SEARCH_FS_FALLBACK = "SEARCH_FS_FALLBACK" # Filesystem fallback resolved
+    SEARCH_FAILED = "SEARCH_FAILED"          # Zero results from all engines
     SEND_FAIL = "SEND_FAIL"
     EMPTY_SECTION = "EMPTY_SECTION"
     VALIDATION_ERROR = "VALIDATION_ERROR"
     USER_REPORT = "USER_REPORT"
+    USER_SUGGESTION = "USER_SUGGESTION"
+    COMMAND = "COMMAND"
     SYSTEM_ORPHAN = "SYSTEM_ORPHAN"
     SYSTEM_WARNING = "SYSTEM_WARNING"
-    DELIVERY_CANCEL = "DELIVERY_CANCEL"
+    DELIVERY_CANCEL = "delivery_cancel"
+    # Execution Safety
+    SYSTEM_DROPPED_EVENT = "system_dropped_event"
+    SYSTEM_TOKEN_MISMATCH = "system_token_mismatch"
+    SYSTEM_TASK_KILLED = "system_task_killed"
     SCREEN = "SCREEN"
 
 

@@ -63,7 +63,7 @@ class ValidationAndNavigationTests(unittest.TestCase):
                 display_name="Test",
                 quarter_labels={1: "Quarter 1"},
                 quarter_order={1: ("course_a", "course_b")},
-                course_files=(),
+                course_files=("courses/course_a.json", "courses/course_b.json"),
             )
             report = RepositoryValidator(root, institution, categories, courses).validate()
             codes = {issue.code for issue in report.issues}

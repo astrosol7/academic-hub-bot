@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys
+import json
 from collections import defaultdict
 from pathlib import Path
 
@@ -45,6 +45,11 @@ class FilesystemContentRepository:
         self._searchable_course_tokens: dict[str, tuple[str, ...]] = {}
         self._searchable_file_tokens: dict[tuple[str, str, int | None], tuple[str, ...]] = {}
         self._indexed_paths: set[Path] = set()
+        
+        self._meta_cache_path = self.resources_root / ".meta_cache.json"
+        self._meta_cache: dict[str, dict] = {}
+        self._load_cache()
+        
         self._index_content()
         self.validation_report = self.validation_report.with_issues(self._detect_orphan_files())
         self.index_memory_bytes = _deep_size(
@@ -101,6 +106,47 @@ class FilesystemContentRepository:
             self._index_course(course)
             self._index_course_search_tokens(course)
         self._index_file_tokens()
+        self._save_cache()
+
+    def _load_cache(self) -> None:
+        if self._meta_cache_path.exists():
+            try:
+                with open(self._meta_cache_path, "r", encoding="utf-8") as f:
+                    self._meta_cache = json.load(f)
+            except Exception:
+                self._meta_cache = {}
+
+    def _save_cache(self) -> None:
+        try:
+            with open(self._meta_cache_path, "w", encoding="utf-8") as f:
+                json.dump(self._meta_cache, f, indent=2)
+        except Exception:
+            pass
+
+    def _get_cached_meta(self, path: Path, course_title: str, category_label: str, week_number: int | None) -> tuple[str, str]:
+        # Returns (label, file_hash)
+        try:
+            mtime = str(path.stat().st_mtime)
+        except OSError:
+            mtime = "0"
+            
+        path_key = path.as_posix()
+        cached = self._meta_cache.get(path_key)
+        
+        if cached and cached.get("mtime") == mtime and cached.get("course_title") == course_title and cached.get("category_label") == category_label and cached.get("week_number") == week_number:
+            return cached["label"], mtime
+
+        # Recompute
+        label = humanize_file_label(path.stem)
+        
+        self._meta_cache[path_key] = {
+            "mtime": mtime,
+            "label": label,
+            "course_title": course_title,
+            "category_label": category_label,
+            "week_number": week_number
+        }
+        return label, mtime
 
     def _index_course(self, course: CourseManifest) -> None:
         course_dir = self.resources_root / f"Quarter_{course.quarter}" / course.folder
@@ -122,13 +168,17 @@ class FilesystemContentRepository:
                         continue
                     seen.add(resolved)
                     self._indexed_paths.add(resolved)
+                    
+                    label, mtime = self._get_cached_meta(path, course.title, category.label, None)
+                    
                     files.append(
                         ResourceFile(
                             path=path,
-                            label=humanize_file_label(path.stem),
+                            label=label,
                             course_id=course.id,
                             category_slug=category.slug,
                             source_hint=folder_name,
+                            file_hash=mtime,
                         )
                     )
             files.sort(key=lambda item: (normalize_text(item.label), str(item.path)))
@@ -150,13 +200,17 @@ class FilesystemContentRepository:
                 inferred = infer_category_slug(rel)
                 if inferred not in self.categories:
                     inferred = "readings"
+                    
+                label, mtime = self._get_cached_meta(path, course.title, self.categories[inferred].label, week_number)
+                    
                 resource = ResourceFile(
                     path=path,
-                    label=humanize_file_label(path.stem),
+                    label=label,
                     course_id=course.id,
                     category_slug=inferred,
                     week_number=week_number,
                     source_hint=str(rel.parent) if rel.parent != Path(".") else "",
+                    file_hash=mtime,
                 )
                 self._week_files[course.id][week_number][inferred].append(resource)
             for category_slug in self._week_files[course.id][week_number]:
@@ -226,6 +280,7 @@ class FilesystemContentRepository:
 
 
 def _deep_size(value: object, seen: set[int] | None = None) -> int:
+    import sys
     if seen is None:
         seen = set()
     identity = id(value)

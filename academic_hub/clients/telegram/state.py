@@ -9,4 +9,8 @@ class HubStates(StatesGroup):
     more_files = State()
     week_list = State()
     week_category = State()
-
+    about = State()
+    report = State()
+    report_description = State()
+    search = State()
+    suggest = State()

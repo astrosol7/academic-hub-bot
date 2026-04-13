@@ -35,7 +35,7 @@
     "slug": "readings",
     "label": "Readings",
     "icon": "📚",
-    "placements": ["more_files", "week_level"],
+    "placements": ["top_level", "more_files", "week_level"],
     "aliases": ["reading", "readings", "syllabus", "textbook", "article", "articles", "handout"],
     "storage_folders": ["readings", "syllabus"]
   },

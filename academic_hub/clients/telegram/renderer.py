@@ -9,7 +9,7 @@ from aiogram.types import Message
 
 from academic_hub.clients.telegram.keyboards import build_reply_keyboard
 from academic_hub.clients.telegram.session import load_session, save_session
-from academic_hub.domain.models import ScreenView
+from academic_hub.domain.models import ScreenView, CourseManifest, CategoryDefinition
 from academic_hub.utils.logging import LogCategory, log_event
 
 
@@ -20,18 +20,37 @@ class TelegramRenderer:
     def __init__(self, bot: Bot) -> None:
         self.bot = bot
 
+    @staticmethod
+    def build_batch_caption(course: CourseManifest, category: CategoryDefinition, week_number: int | None = None) -> str:
+        lines = [
+            f"📘 <b>{course.title}</b>",
+            f"📂 {category.label}",
+        ]
+        if week_number:
+            lines.append(f"📅 Week {week_number}")
+        
+        return "\n".join(lines)
+
     async def render(self, message: Message, state: FSMContext, screen: ScreenView) -> Message:
+        """Render a screen. Rules:
+        1. Delete ALL transient messages (status updates like "Sending...")
+        2. NEVER delete the screen_message_id (the keyboard carrier)
+        3. Send ONE new message with the keyboard
+        """
         session = await load_session(state)
+
+        # Step 1: Clean transient messages ONLY
         for transient_id in session.transient_messages:
             await self._safe_delete(message.chat.id, transient_id)
 
-        if session.screen_message_id:
-            await self._safe_delete(message.chat.id, session.screen_message_id)
-
+        # Step 2: Send the new screen message with keyboard
         sent = await message.answer(
             screen.text,
             reply_markup=build_reply_keyboard(screen.button_rows, placeholder=screen.placeholder),
+            parse_mode="HTML",
         )
+
+        # Step 3: Save state — new screen_message_id, clear transients
         updated = session.model_copy(
             update={
                 "screen_message_id": sent.message_id,
