@@ -1,6 +1,11 @@
 import logging
 from typing import Optional
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables before any other imports (Force override on reload)
+load_dotenv(override=True)
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
@@ -10,7 +15,7 @@ from sqlalchemy.orm import Session
 from backend.api.database import get_db
 from backend.api.models import (
     Resource, ResourceStatus, Course, ResourceCategory,
-    IngestionLog, UsageSignal
+    IngestionLog, UsageSignal, ReportSubmission, ReportContextType, ReportStatus
 )
 from backend.api.auth import router as auth_router
 
@@ -65,6 +70,14 @@ class TelemetryEvent(BaseModel):
     user_id: str
     action: str
     metadata: dict = {}
+
+class IncidentCreate(BaseModel):
+    telegram_id: str
+    category: str
+    description: str
+    course_id: Optional[str] = None
+    context_type: ReportContextType = ReportContextType.ISSUE
+
 
 # ── SEARCH ENDPOINT (HTTP BRIDGE) ──────────────────────────────
 
@@ -147,6 +160,28 @@ def log_telemetry(event: TelemetryEvent, db: Session = Depends(get_db)):
         db.rollback()
         return {"status": "dropped"}
 
+# ── INCIDENT REPORTING ENDPOINT ────────────────────────────────
+@app.post("/api/v1/incidents")
+def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)):
+    """Capture student issue reports for dashboard triage."""
+    try:
+        report = ReportSubmission(
+            telegram_id=payload.telegram_id,
+            category=payload.category,
+            description=payload.description,
+            course_id=payload.course_id,
+            context_type=payload.context_type,
+            status=ReportStatus.OPEN
+        )
+        db.add(report)
+        db.commit()
+        return {"status": "created", "id": str(report.id)}
+    except Exception as e:
+        log.error(f"Failed to create incident: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to record incident.")
+
+
 # ── CIS INGESTION ENDPOINT ─────────────────────────────────────
 
 @app.post("/api/v1/cis/ingest", response_model=CISIngestResponse)
@@ -226,3 +261,14 @@ def ingest_resource(payload: CISIngestRequest, db: Session = Depends(get_db)):
 @app.get("/api/v1/health")
 def health_check():
     return {"status": "operational", "version": "1.0.0", "release": "orbit"}
+
+if __name__ == "__main__":
+    import uvicorn
+    # Configuration for Orbit V1 Deployment
+    uvicorn.run(
+        "backend.api.main:app", 
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True,
+        log_level="info"
+    )

@@ -176,8 +176,17 @@ def register_handlers(
 
         if session.mode == SessionMode.REPORT:
             if session.section == "report_1":
-                if text in ("Missing file", "Wrong content", "Other"):
-                    await navigate(message, state, f"nav:report_category:{text}")
+                # Normalize button text to ensure match even with icons
+                clean_text = text.lower()
+                cat_map = {"missing file": "Missing file", "wrong content": "Wrong content", "other": "Other"}
+                matched_cat = None
+                for k, v in cat_map.items():
+                    if k in clean_text:
+                        matched_cat = v
+                        break
+                
+                if matched_cat:
+                    await navigate(message, state, f"nav:report_category:{matched_cat}")
                 else:
                     await message.answer("⚠️ Please choose a category from the menu.")
                 return
@@ -187,6 +196,7 @@ def register_handlers(
             elif session.section == "suggest":
                 await handle_suggestion(message, state, text)
                 return
+
 
         # 4. NAVIGATION LEVELS (Only for BROWSE)
         if session.mode == SessionMode.BROWSE or session.mode == SessionMode.HOME:
@@ -329,7 +339,25 @@ def register_handlers(
         )
         task_registry.register(session.user_id, "delivery", asyncio.create_task(coro))
 
+    async def _save_incident_API(user_id: int, category: str, description: str, course_id: str | None) -> None:
+        """Saves report to PostgreSQL via FastAPI for dashboard visibility."""
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    "http://127.0.0.1:8000/api/v1/incidents",
+                    json={
+                        "telegram_id": str(user_id),
+                        "category": category,
+                        "description": description,
+                        "course_id": course_id
+                    }
+                )
+        except Exception as e:
+            log.warning(f"Failed to save incident to API: {e}")
+
     async def _fire_telemetry(user_id: int, action: str, metadata: dict) -> None:
+
         """Non-blocking telemetry push to FastAPI. Never crashes the bot."""
         import httpx
         try:
@@ -394,7 +422,22 @@ def register_handlers(
                 resolution_kind=resolution.kind
             )
             safe_msg = html.escape(resolution.message)
-            await message.answer(f"🔍 <b>Search Result</b>\n\n{safe_msg}", parse_mode="HTML")
+            
+            # Feature: Interactive Disambiguation Buttons
+            keyboard = None
+            if resolution.suggestions:
+                from academic_hub.clients.telegram.keyboards import build_reply_keyboard
+                # Sort suggestions to ensure deterministic UI
+                suggestion_rows = [tuple(sorted(resolution.suggestions))]
+                suggestion_rows.append((labels.back, labels.main_menu))
+                keyboard = build_reply_keyboard(tuple(suggestion_rows), placeholder="Choose course/category...")
+            
+            await message.answer(
+                f"🔍 <b>Search Result</b>\n\n{safe_msg}", 
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+
 
         # ── TELEMETRY: Fire async (non-blocking) ──
         asyncio.create_task(_fire_telemetry(
@@ -445,7 +488,16 @@ def register_handlers(
         except Exception as e:
             log.warning(f"Failed to forward report to admin {admin_id}: {e}")
         
+        # New: Save to Backend for Dashboard
+        asyncio.create_task(_save_incident_API(
+            session.user_id, 
+            session.report_category or "Other", 
+            text, 
+            session.course_id
+        ))
+        
         await message.answer("✅ <b>Report received.</b> Thank you for helping us improve!")
+
         await navigate(message, state, "nav:main")
 
     async def handle_suggestion(message: types.Message, state: FSMContext, text: str) -> None:

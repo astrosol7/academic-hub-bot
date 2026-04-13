@@ -449,11 +449,12 @@ class SearchService:
         top_score = course_candidates[0][1]
         tied_courses = [course_id for course_id, score in course_candidates if score == top_score]
         if len(tied_courses) > 1:
-            titles = ", ".join(self.repository.courses[course_id].title for course_id in tied_courses)
+            suggestions = tuple(self.repository.get_course(cid).title for cid in tied_courses if self.repository.get_course(cid))
             return SearchResolution(
                 kind="ambiguous_course",
-                message=f"I found more than one course: {titles}. Please use the exact course name.",
+                message=f"I found more than one course: {', '.join(suggestions)}. Please choose one.",
                 course_ids=tuple(tied_courses),
+                suggestions=suggestions,
                 week_number=query.week_number,
                 syllabus_only=query.wants_syllabus,
             )
@@ -528,13 +529,16 @@ class SearchService:
                 if slug in allowed_categories
             )
             if len(ambiguous) > 1:
+                suggestions = tuple(self.repository.categories[cat].label for cat in ambiguous if cat in self.repository.categories)
                 return SearchResolution(
                     kind="ambiguous_category",
-                    message="`notes` is ambiguous here. Choose `Lecture notes` or `Breakout notes`.",
+                    message="`notes` is ambiguous here. Please choose exactly which notes you want.",
                     course_id=course_id,
                     category_slugs=ambiguous,
+                    suggestions=suggestions,
                     week_number=query.week_number,
                 )
+
 
         explicit_matches: list[str] = []
         for category_slug in allowed_categories:
@@ -547,13 +551,16 @@ class SearchService:
             return SearchResolution(kind="match", course_id=course_id, category_slugs=(explicit_matches[0],))
 
         if len(explicit_matches) > 1:
+            slugs = tuple(dict.fromkeys(explicit_matches))
+            suggestions = tuple(self.repository.categories[cat].label for cat in slugs if cat in self.repository.categories)
             return SearchResolution(
                 kind="ambiguous_category",
                 message="That request matches more than one category. Choose the exact category from the menu.",
                 course_id=course_id,
-                    category_slugs=tuple(dict.fromkeys(explicit_matches)),
-                    week_number=query.week_number,
-                )
+                category_slugs=slugs,
+                suggestions=suggestions,
+                week_number=query.week_number,
+            )
 
         return SearchResolution(
             kind="missing_category",

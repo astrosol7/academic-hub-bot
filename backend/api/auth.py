@@ -1,7 +1,7 @@
 import os
-from datetime import datetime, timedelta
+import bcrypt
 import jwt
-from passlib.context import CryptContext
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,8 +12,9 @@ from backend.api.database import get_db
 SECRET_KEY = os.getenv("JWT_SECRET", "super_secret_dev_key_never_use_in_prod")
 ALGORITHM = "HS256"
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 router = APIRouter()
+
+# ── SCHEMAS ───────────────────────────────────────────────────
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -24,17 +25,29 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+# ── HASHING UTILS (RAW BCRYPT) ────────────────────────────────
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
+def get_password_hash(password: str) -> str:
+    """Hash a password using raw bcrypt."""
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain password against a bcrypt hash."""
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"),
+        hashed_password.encode("utf-8")
+    )
 
 def create_token(data: dict, expires_delta: timedelta):
     to_encode = data.copy()
     expire = datetime.utcnow() + expires_delta
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+# ── ENDPOINTS ─────────────────────────────────────────────────
 
 @router.post("/api/v1/auth/bootstrap", response_model=TokenResponse)
 def bootstrap_root(payload: LoginRequest, db: Session = Depends(get_db)):

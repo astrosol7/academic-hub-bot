@@ -417,7 +417,9 @@ class SearchResolution(BaseModel):
     course_id: str | None = None
     course_ids: tuple[str, ...] = ()
     category_slugs: tuple[str, ...] = ()
+    suggestions: tuple[str, ...] = ()
     week_number: int | None = None
+
     syllabus_only: bool = False
 
     @field_validator("message", mode="before")

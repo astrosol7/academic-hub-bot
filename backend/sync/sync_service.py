@@ -1,30 +1,39 @@
 import os
-import csv
+import sys
 import json
-import uuid
 import logging
 from pathlib import Path
 from datetime import datetime
+
+# Fix path to ensure 'backend' and 'academic_hub' are found
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.api.models import (
     Base, Institution, Course, ResourceCategory, Resource, 
-    Student, ContentStrategy, SyncError, ValidationSeverity, QuarantineStatus
+    Student, ContentStrategy, SyncError, ValidationSeverity
 )
+from academic_hub.config import load_config
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("sync_service")
 
+# Load modern config
+config = load_config(require_token=False)
+
 # Database setup
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password123@localhost:5432/academic_hub")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    # Fallback to .env manually if not loaded
+    from dotenv import load_dotenv
+    load_dotenv(ROOT_DIR / ".env")
+    DATABASE_URL = os.getenv("DATABASE_URL")
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-def recreate_db():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    log.info("Database recreated successfully.")
 
 class SyncPipeline:
     def __init__(self, manifests_root: Path, resources_root: Path):
@@ -71,6 +80,10 @@ class SyncPipeline:
     def _ingest_metadata(self):
         # Maps categories and institutions into the core tables.
         cat_file = self.manifests_root / "categories.json"
+        if not cat_file.exists():
+            log.error(f"Manifest missing: {cat_file}")
+            return
+
         with open(cat_file, 'r', encoding='utf-8') as f:
             for cat in json.load(f):
                 if not self.db.query(ResourceCategory).filter_by(slug=cat['slug']).first():
@@ -90,36 +103,39 @@ class SyncPipeline:
     def _ingest_resources(self):
         # We parse Quarter 1 -> Courses -> Files strictly through Validation Gates.
         sit = self.db.query(Institution).filter_by(id="sit").first()
-        quarter_root = self.resources_root / "Quarter_1"
-        if not quarter_root.exists():
-            return
-            
-        for folder in quarter_root.iterdir():
-            if not folder.is_dir():
+        
+        # Look for all Quarter_* folders
+        for quarter_root in sorted(self.resources_root.glob("Quarter_*")):
+            if not quarter_root.is_dir():
                 continue
+            
+            quarter_num = int(quarter_root.name.split("_")[1])
+            log.info(f"Processing {quarter_root.name}...")
                 
-            course_id = folder.name.lower().replace(" ", "_")
-            course = self.db.query(Course).filter_by(id=course_id).first()
-            if not course:
-                # Validate and Recover: Assume folder name is course title
-                course = Course(
-                    id=course_id, institution_id=sit.id, quarter=1, 
-                    title=folder.name.replace("_", " ").title(),
-                    folder_path=str(folder.relative_to(self.resources_root)),
-                    content_strategy=ContentStrategy.WEEK_DRIVEN
-                )
-                self.db.add(course)
-                self.db.flush()
+            for folder in quarter_root.iterdir():
+                if not folder.is_dir():
+                    continue
+                    
+                course_id = folder.name.upper().replace(" ", "_")
+                course = self.db.query(Course).filter_by(id=course_id).first()
+                if not course:
+                    course = Course(
+                        id=course_id, institution_id=sit.id, quarter=quarter_num, 
+                        title=folder.name.replace("_", " ").title(),
+                        folder_path=str(folder.relative_to(self.resources_root)),
+                        content_strategy=ContentStrategy.WEEK_DRIVEN
+                    )
+                    self.db.add(course)
+                    self.db.flush()
 
-            self._traverse_course_drive(course, folder)
+                self._traverse_course_drive(course, folder)
         self.db.commit()
 
     def _traverse_course_drive(self, course: Course, folder: Path):
-        for path in folder.rglob("*"):
+        for path in folder.rglob("*.pdf"):
             if path.is_dir() or path.name.startswith("."):
                 continue
                 
-            # Validation Layer
             file_hash = str(path.stat().st_mtime)
             title = path.stem.replace("_", " ")
             parent = path.parent.name.lower()
@@ -135,15 +151,13 @@ class SyncPipeline:
                 try:
                     week_num = int(parent.split("_")[1])
                 except ValueError:
-                    self._log_quarantine(path, "Malformed week folder structure.", metadata={"inferred_course": course.id})
                     continue
                     
             res = self.db.query(Resource).filter_by(external_path=str(path)).first()
             if not res:
                 res = Resource(
                     course_id=course.id, category_slug=category_slug, external_path=str(path),
-                    title=title, week_number=week_num, file_hash=file_hash,
-                    tags=None
+                    title=title, week_number=week_num, file_hash=file_hash
                 )
                 self.db.add(res)
             elif res.file_hash != file_hash:
@@ -151,10 +165,10 @@ class SyncPipeline:
                 res.updated_at = datetime.utcnow()
 
 if __name__ == "__main__":
-    recreate_db()
+    # Removed destructive recreate_db() to protect Admin users.
     
-    root = Path("..").resolve().parent
-    SyncPipeline(
-        manifests_root=root / "academic_hub" / "manifests",
-        resources_root=root / "resources" / "institutions" / "sit"
-    ).run()
+    pipeline = SyncPipeline(
+        manifests_root=config.manifests_root,
+        resources_root=config.resources_root
+    )
+    pipeline.run()

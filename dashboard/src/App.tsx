@@ -6,6 +6,8 @@ import {
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('orbit_access_token'));
+  const [activeTab, setActiveTab] = useState('overview');
+
 
   const logout = () => {
     localStorage.removeItem('orbit_access_token');
