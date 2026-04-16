@@ -567,6 +567,7 @@ class TelegramSession(BaseModel):
     history: list[str] = Field(default_factory=lambda: ["nav:main"])
     delivery_active: bool = False
     mode: SessionMode = SessionMode.HOME
+    search_target: str = "resources"  # resources | community
     report_category: str | None = None
     noise_count: int = 0
 

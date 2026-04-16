@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   ShieldCheck, Server, AlertTriangle, Search, HardDrive, FileTerminal, Activity, 
   Users, BarChart3, RefreshCw, CheckCircle2, MessageSquareWarning, Zap, Filter, Lock, LogOut
 } from 'lucide-react';
+import { api, type Incident, type IncidentStatus, type Overview, type QuarantineItem, type StudentRow, type TelemetryRow } from './api';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('orbit_access_token'));
@@ -63,8 +64,22 @@ export default function App() {
 // ── 1. CONTROL TOWER (Actionable Only) ────────────────────────────────
 
 function OverviewPanel() {
-  // Formula calculation mocked
-  const healthScore = 80; // 100 - (0 * 20) - (1 * 20) etc.
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [err, setErr] = useState<string>('');
+
+  useEffect(() => {
+    let alive = true;
+    api.overview()
+      .then((o) => alive && setOverview(o))
+      .catch((e: any) => alive && setErr(e?.detail || 'Failed to load overview'));
+    return () => { alive = false; };
+  }, []);
+
+  const healthScore = useMemo(() => {
+    if (!overview) return 0;
+    const penalty = Math.min(overview.conflicts_total, 10) * 4 + Math.min(overview.quarantine_pending, 10) * 4;
+    return Math.max(0, 100 - penalty);
+  }, [overview]);
   const healthColor = healthScore > 75 ? 'text-emerald-400' : healthScore > 40 ? 'text-orange-400' : 'text-rose-500';
 
   return (
@@ -85,10 +100,10 @@ function OverviewPanel() {
 
       {/* Actionable Top Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <StatCard icon={<AlertTriangle className="w-6 h-6 text-orange-400"/>} title="Active Issues" value="3" subtitle="Require Priority Resolution" />
-        <StatCard icon={<ShieldCheck className="w-6 h-6 text-rose-400"/>} title="Sync Failures" value="1" subtitle="In Quarantine (Last Run)" />
-        <StatCard icon={<Search className="w-6 h-6 text-rose-400"/>} title="Search Fail Rate" value="4.2%" subtitle="0-result drop-offs" />
-        <StatCard icon={<Users className="w-6 h-6 text-blue-400"/>} title="Identity Velocity" value="+41" subtitle="Verified in 24h" />
+        <StatCard icon={<AlertTriangle className="w-6 h-6 text-orange-400"/>} title="Active Issues" value={overview ? String(overview.incidents_open) : '—'} subtitle="Require Priority Resolution" />
+        <StatCard icon={<ShieldCheck className="w-6 h-6 text-rose-400"/>} title="Sync Failures" value={overview ? String(overview.quarantine_pending) : '—'} subtitle="In Quarantine" />
+        <StatCard icon={<Users className="w-6 h-6 text-blue-400"/>} title="Student Directory" value={overview ? String(overview.students_total) : '—'} subtitle="Seeded from SIT CSV" />
+        <StatCard icon={<MessageSquareWarning className="w-6 h-6 text-orange-400"/>} title="Identity Conflicts" value={overview ? String(overview.conflicts_total) : '—'} subtitle="Admin must resolve" />
       </div>
 
       {/* Performance Latency Board */}
@@ -107,6 +122,7 @@ function OverviewPanel() {
            <div className="text-xl font-mono text-orange-400">890ms</div>
         </div>
       </div>
+      {err && <div className="mt-6 text-sm text-rose-400 font-semibold">{err}</div>}
     </div>
   );
 }
@@ -114,11 +130,32 @@ function OverviewPanel() {
 // ── 2. INCIDENT WAR ROOM (Interactive triage) ─────────────────────────
 
 function IncidentsWarRoom() {
-  const mockIncidents = [
-    { id: "REP-912", user: "@astrounder", course: "calc_1", cat: "Missing File", priority: 8, status: "OPEN", reason: "+5 (Multi-User), +3 (Core Course)" },
-    { id: "REP-913", user: "@data_guy", course: "physics_1", cat: "Wrong Content", priority: 5, status: "IN_PROGRESS", reason: "+3 (Core Course), +2 (Recent)" },
-    { id: "REP-911", user: "@stellar", course: "electives", cat: "Other", priority: 1, status: "OPEN", reason: "Standard triage" },
-  ];
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [err, setErr] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
+
+  const refresh = async () => {
+    setLoading(true);
+    setErr('');
+    try {
+      setIncidents(await api.incidents());
+    } catch (e: any) {
+      setErr(e?.detail || 'Failed to load incidents');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const setStatus = async (id: string, status: IncidentStatus) => {
+    try {
+      await api.updateIncident(id, status);
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.detail || 'Failed to update incident');
+    }
+  };
 
   return (
     <div className="animate-in fade-in duration-500 max-w-7xl mx-auto">
@@ -138,44 +175,63 @@ function IncidentsWarRoom() {
           <thead>
             <tr className="bg-[#1c212a] text-xs uppercase tracking-wider text-slate-500 border-b border-[#30363d]">
               <th className="px-4 py-4 font-medium w-12 text-center"><input type="checkbox" className="accent-blue-500 bg-transparent border-[#30363d]"/></th>
-              <th className="px-6 py-4 font-medium">Priority Score</th>
-              <th className="px-6 py-4 font-medium">Ticket ID</th>
-              <th className="px-6 py-4 font-medium">User Targeting</th>
-              <th className="px-6 py-4 font-medium">Context Pivot</th>
-              <th className="px-6 py-4 font-medium">Status Guard</th>
+              <th className="px-6 py-4 font-medium">Ticket</th>
+              <th className="px-6 py-4 font-medium">Telegram ID</th>
+              <th className="px-6 py-4 font-medium">Category</th>
+              <th className="px-6 py-4 font-medium">Context</th>
+              <th className="px-6 py-4 font-medium">Status</th>
               <th className="px-6 py-4 font-medium">Tactics</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#30363d]">
-            {mockIncidents.sort((a,b)=>b.priority - a.priority).map(inc => (
-              <tr key={inc.id} className="hover:bg-[#30363d]/30 transition-colors group">
+            {loading && (
+              <tr><td className="px-6 py-6 text-slate-400" colSpan={7}>Loading…</td></tr>
+            )}
+            {!loading && incidents.map((inc) => (
+              <tr key={inc.id} className="hover:bg-[#30363d]/30 transition-colors group align-top">
                 <td className="px-4 py-4 text-center"><input type="checkbox" className="accent-blue-500" /></td>
-                <td className="px-6 py-4">
-                  <div className="flex flex-col">
-                    <span className={`text-xl font-black ${inc.priority >= 5 ? 'text-orange-400' : 'text-blue-400'}`}>{inc.priority}</span>
-                    <span className="text-[10px] text-slate-500 uppercase">{inc.reason}</span>
-                  </div>
-                </td>
                 <td className="px-6 py-4 font-mono text-sm text-slate-300">{inc.id}</td>
-                <td className="px-6 py-4 font-medium text-blue-400 cursor-pointer hover:underline">{inc.user}</td>
-                <td className="px-6 py-4 flex flex-col gap-1">
-                  <span className="text-slate-200 font-medium">{inc.course}</span>
-                  <span className="text-xs text-slate-500">{inc.cat}</span>
+                <td className="px-6 py-4 font-mono text-xs text-slate-400">{inc.telegram_id}</td>
+                <td className="px-6 py-4 text-slate-200 font-medium">{inc.category}</td>
+                <td className="px-6 py-4">
+                  <div className="text-xs text-slate-400">{inc.course_id ? `course: ${inc.course_id}` : 'general'}</div>
+                  <div className="text-sm text-slate-200 mt-1 whitespace-pre-wrap">{inc.description}</div>
                 </td>
                 <td className="px-6 py-4">
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${inc.status === 'OPEN' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'}`}>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    inc.status === 'OPEN'
+                      ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                      : inc.status === 'IN_PROGRESS'
+                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                        : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  }`}>
                     {inc.status}
                   </span>
                 </td>
                 <td className="px-6 py-4 flex gap-2">
-                  <button className="text-xs px-3 py-1.5 rounded border border-[#30363d] hover:bg-[#404854] text-white transition-colors">Inspect</button>
-                  <button className="text-xs px-3 py-1.5 rounded border border-[#30363d] bg-[#30363d]/50 hover:bg-emerald-500/20 hover:text-emerald-400 transition-colors">Resolve</button>
+                  {inc.status !== 'IN_PROGRESS' && (
+                    <button
+                      onClick={() => setStatus(inc.id, 'IN_PROGRESS')}
+                      className="text-xs px-3 py-1.5 rounded border border-[#30363d] hover:bg-[#404854] text-white transition-colors"
+                    >
+                      Start
+                    </button>
+                  )}
+                  {inc.status !== 'RESOLVED' && (
+                    <button
+                      onClick={() => setStatus(inc.id, 'RESOLVED')}
+                      className="text-xs px-3 py-1.5 rounded border border-[#30363d] bg-[#30363d]/50 hover:bg-emerald-500/20 hover:text-emerald-400 transition-colors"
+                    >
+                      Resolve
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {err && <div className="mt-4 text-sm text-rose-400 font-semibold">{err}</div>}
     </div>
   );
 }
@@ -183,6 +239,33 @@ function IncidentsWarRoom() {
 // ── 3. QUARANTINE STATION (Interactive Debugging Engine) ──────────────
 
 function QuarantineInteractive() {
+  const [items, setItems] = useState<QuarantineItem[]>([]);
+  const [err, setErr] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
+
+  const refresh = async () => {
+    setLoading(true);
+    setErr('');
+    try {
+      setItems(await api.quarantine());
+    } catch (e: any) {
+      setErr(e?.detail || 'Failed to load quarantine list');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const mark = async (id: string, status: 'RECOVERED' | 'IGNORED') => {
+    try {
+      await api.updateQuarantine(id, status);
+      await refresh();
+    } catch (e: any) {
+      setErr(e?.detail || 'Failed to update quarantine');
+    }
+  };
+
   return (
     <div className="animate-in fade-in duration-500 max-w-7xl mx-auto">
       <header className="mb-8 flex justify-between items-end">
@@ -190,35 +273,38 @@ function QuarantineInteractive() {
           <h2 className="text-3xl font-bold text-rose-400 mb-2">Quarantine Debug Engine</h2>
           <p className="text-slate-400">Halt and neutralize filesystem anomalies before DB ingestion.</p>
         </div>
-        <button className="px-4 py-2 border border-rose-500/30 bg-rose-500/10 text-rose-400 font-bold rounded flex items-center gap-2 hover:bg-rose-500/20 transition-colors">
-          <RefreshCw className="w-4 h-4"/> Batch Retry All
+        <button onClick={refresh} className="px-4 py-2 border border-rose-500/30 bg-rose-500/10 text-rose-400 font-bold rounded flex items-center gap-2 hover:bg-rose-500/20 transition-colors">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`}/> Refresh
         </button>
       </header>
       
       <div className="flex flex-col gap-4">
-         <div className="p-6 border border-rose-500/30 bg-[#161b22] rounded-xl relative overflow-hidden group">
-           <div className="flex justify-between items-start mb-4">
-             <div>
-               <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                  <AlertTriangle className="text-orange-400 w-5 h-5"/> Standard Violation: Week Directory
-               </h4>
-               <p className="text-sm text-slate-400 mt-1">Ingestion pipeline bypassed file mapping due to unparseable nested structure.</p>
-             </div>
-             <button className="px-4 py-2 bg-[#30363d] hover:bg-blue-600 transition-colors text-white text-sm font-medium rounded-lg">Trigger Re-sync Attempt</button>
-           </div>
-           
-           <div className="grid grid-cols-2 gap-4">
-             <div className="bg-[#0f1115] p-4 rounded-lg border border-rose-500/20">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Detected Anomaly Pattern</div>
-                <code className="text-sm text-rose-400 block break-all font-mono">/Quarter_1/Intro_Programming/Wk1_Notes/main.pdf</code>
-             </div>
-             <div className="bg-[#0f1115] p-4 rounded-lg border border-emerald-500/20">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Engine Fix Suggestion</div>
-                <code className="text-sm text-emerald-400 block break-all font-mono">/Quarter_1/Intro_Programming/week_1/lecture_notes/main.pdf</code>
-             </div>
-           </div>
-         </div>
+        {loading && <div className="text-slate-400">Loading…</div>}
+        {!loading && items.length === 0 && (
+          <div className="text-emerald-400 font-bold">No pending quarantine items.</div>
+        )}
+        {!loading && items.map((it) => (
+          <div key={it.id} className="p-6 border border-rose-500/30 bg-[#161b22] rounded-xl relative overflow-hidden group">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                  <AlertTriangle className="text-orange-400 w-5 h-5"/> Quarantined File
+                </h4>
+                <p className="text-sm text-slate-400 mt-1">{it.reason}</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => mark(it.id, 'RECOVERED')} className="px-4 py-2 bg-[#30363d] hover:bg-emerald-600 transition-colors text-white text-sm font-medium rounded-lg">Mark Recovered</button>
+                <button onClick={() => mark(it.id, 'IGNORED')} className="px-4 py-2 bg-[#30363d] hover:bg-rose-600 transition-colors text-white text-sm font-medium rounded-lg">Ignore</button>
+              </div>
+            </div>
+            <div className="bg-[#0f1115] p-4 rounded-lg border border-rose-500/20">
+              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">File Path</div>
+              <code className="text-sm text-rose-400 block break-all font-mono">{it.file_path}</code>
+            </div>
+          </div>
+        ))}
       </div>
+      {err && <div className="mt-4 text-sm text-rose-400 font-semibold">{err}</div>}
     </div>
   )
 }
@@ -226,6 +312,37 @@ function QuarantineInteractive() {
 // ── 4. IDENTITY MATRIX (Conflict Controls) ────────────────────────────
 
 function VerificationShield() {
+  const [query, setQuery] = useState('');
+  const [rows, setRows] = useState<StudentRow[]>([]);
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const refresh = async (q?: string) => {
+    setLoading(true);
+    setErr('');
+    try {
+      setRows(await api.students(q));
+    } catch (e: any) {
+      setErr(e?.detail || 'Failed to load students');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const conflicts = useMemo(() => rows.filter(r => r.is_conflicted), [rows]);
+  const linked = useMemo(() => rows.filter(r => !!r.telegram_id), [rows]);
+
+  const unbind = async (r: StudentRow) => {
+    try {
+      await api.unbind(r.telegram_id || undefined, r.student_id);
+      await refresh(query);
+    } catch (e: any) {
+      setErr(e?.detail || 'Failed to unbind');
+    }
+  };
+
   return (
     <div className="animate-in fade-in duration-500 max-w-7xl mx-auto">
       <header className="mb-8">
@@ -233,28 +350,63 @@ function VerificationShield() {
         <p className="text-slate-400">Strict Telegram-to-Institution Identity resolution overrides.</p>
       </header>
       
-      {/* Search Input */}
       <div className="mb-6 relative max-w-2xl">
-          <input type="text" placeholder="Search Telegram ID, Username, or Student Tag..." className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-4 py-3 pl-12 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors shadow-lg" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') refresh(query); }}
+            type="text"
+            placeholder="Search School ID or student name..."
+            className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-4 py-3 pl-12 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors shadow-lg"
+          />
           <Search className="absolute left-4 top-3.5 text-slate-500 w-5 h-5" />
       </div>
 
-       <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 overflow-hidden">
-          <div className="bg-orange-500/20 px-6 py-3 border-b border-orange-500/30 flex items-center gap-2">
-            <MessageSquareWarning className="text-orange-400 w-4 h-4"/>
-            <span className="text-orange-400 font-bold text-sm tracking-wide">1 ACTIVE IDENTITY CONFLICT</span>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="rounded-xl border border-[#30363d] bg-[#161b22] overflow-hidden">
+          <div className="px-6 py-4 border-b border-[#30363d] flex items-center justify-between">
+            <div className="text-white font-bold">Linked Students</div>
+            <div className="text-xs text-slate-500 font-mono">{linked.length}</div>
           </div>
-          <div className="p-6 flex items-center justify-between">
-             <div>
-                <h4 className="text-white font-bold mb-1">Student ID Clash: 21XXXX</h4>
-                <p className="text-slate-400 text-sm">Two distinct Telegram accounts are attempting to bind to the same internal Student ID. System has locked both payloads to <span className="text-orange-400 font-mono">CONFLICTED</span> state.</p>
-             </div>
-             <div className="flex gap-2">
-                <button className="px-4 py-2 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30 transition-colors text-sm font-bold">Unbind A (@anon21)</button>
-                <button className="px-4 py-2 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30 transition-colors text-sm font-bold">Unbind B (@realuser)</button>
-             </div>
+          <div className="p-0">
+            {loading && <div className="p-6 text-slate-400">Loading…</div>}
+            {!loading && linked.slice(0, 50).map((r) => (
+              <div key={r.student_id} className="px-6 py-4 border-t border-[#30363d] flex items-center justify-between">
+                <div>
+                  <div className="text-white font-mono text-sm">{r.student_id}</div>
+                  <div className="text-slate-400 text-sm">{r.full_name}</div>
+                  <div className="text-slate-500 text-xs font-mono">telegram: {r.telegram_id}</div>
+                </div>
+                <button onClick={() => unbind(r)} className="px-4 py-2 rounded bg-orange-500/10 text-orange-400 border border-orange-500/30 hover:bg-orange-500/20 transition-colors text-sm font-bold">Unbind</button>
+              </div>
+            ))}
           </div>
-       </div>
+        </div>
+
+        <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 overflow-hidden">
+          <div className="bg-orange-500/20 px-6 py-3 border-b border-orange-500/30 flex items-center gap-2 justify-between">
+            <div className="flex items-center gap-2">
+              <MessageSquareWarning className="text-orange-400 w-4 h-4"/>
+              <span className="text-orange-400 font-bold text-sm tracking-wide">ACTIVE IDENTITY CONFLICTS</span>
+            </div>
+            <span className="text-orange-400 font-bold text-sm tracking-wide">{conflicts.length}</span>
+          </div>
+          <div className="p-0">
+            {!loading && conflicts.length === 0 && <div className="p-6 text-emerald-400 font-bold">No conflicts.</div>}
+            {!loading && conflicts.slice(0, 50).map((r) => (
+              <div key={r.student_id} className="px-6 py-4 border-t border-orange-500/20 flex items-center justify-between">
+                <div>
+                  <div className="text-white font-mono text-sm">{r.student_id}</div>
+                  <div className="text-slate-400 text-sm">{r.full_name}</div>
+                  <div className="text-orange-400 text-xs font-mono">conflicted</div>
+                </div>
+                <button onClick={() => unbind(r)} className="px-4 py-2 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30 transition-colors text-sm font-bold">Clear/Unbind</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {err && <div className="mt-4 text-sm text-rose-400 font-semibold">{err}</div>}
     </div>
   )
 }
@@ -262,6 +414,18 @@ function VerificationShield() {
 // ── 5. SEARCH INTELLIGENCE (Product Gap Metrics) ──────────────────────
 
 function SearchIntelligencePanel() {
+  const [top, setTop] = useState<TelemetryRow[]>([]);
+  const [failed, setFailed] = useState<TelemetryRow[]>([]);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([api.telemetryTop(), api.telemetryFailed()])
+      .then(([t, f]) => { if (!alive) return; setTop(t); setFailed(f); })
+      .catch((e: any) => alive && setErr(e?.detail || 'Failed to load telemetry'));
+    return () => { alive = false; };
+  }, []);
+
   return (
     <div className="animate-in fade-in duration-500 max-w-7xl mx-auto">
       <header className="mb-8 flex justify-between">
@@ -282,9 +446,12 @@ function SearchIntelligencePanel() {
           <div className="p-0 overflow-auto">
              <table className="w-full text-left">
                 <tbody className="divide-y divide-[#30363d]">
-                  <tr className="hover:bg-[#30363d]/30"><td className="px-5 py-3 text-white font-mono">physics past papers</td><td className="px-5 py-3 text-blue-400 text-right">3,492</td></tr>
-                  <tr className="hover:bg-[#30363d]/30"><td className="px-5 py-3 text-white font-mono">calc hw 4</td><td className="px-5 py-3 text-blue-400 text-right">1,204</td></tr>
-                  <tr className="hover:bg-[#30363d]/30"><td className="px-5 py-3 text-white font-mono">syllabus programming</td><td className="px-5 py-3 text-blue-400 text-right">895</td></tr>
+                  {top.map((r) => (
+                    <tr key={r.query} className="hover:bg-[#30363d]/30">
+                      <td className="px-5 py-3 text-white font-mono">{r.query}</td>
+                      <td className="px-5 py-3 text-blue-400 text-right">{r.count.toLocaleString()}</td>
+                    </tr>
+                  ))}
                 </tbody>
              </table>
           </div>
@@ -300,15 +467,19 @@ function SearchIntelligencePanel() {
           <div className="p-0 overflow-auto z-10">
              <table className="w-full text-left">
                 <tbody className="divide-y divide-[#30363d]">
-                  <tr className="bg-rose-500/5 hover:bg-rose-500/10"><td className="px-5 py-3 text-white font-mono text-sm">"week 12 physics lab"</td><td className="px-5 py-3 text-rose-400 text-right font-bold tracking-widest text-xs uppercase">Missing Asset</td></tr>
-                  <tr className="hover:bg-[#30363d]/30"><td className="px-5 py-3 text-white font-mono text-sm">"biology syllabus"</td><td className="px-5 py-3 text-rose-400 text-right font-bold tracking-widest text-xs uppercase">Un-catalogued</td></tr>
-                  <tr className="hover:bg-[#30363d]/30"><td className="px-5 py-3 text-white font-mono text-sm">"midterm 2 solutions"</td><td className="px-5 py-3 text-rose-400 text-right font-bold tracking-widest text-xs uppercase">Restricted</td></tr>
+                  {failed.map((r) => (
+                    <tr key={r.query} className="bg-rose-500/5 hover:bg-rose-500/10">
+                      <td className="px-5 py-3 text-white font-mono text-sm">{r.query}</td>
+                      <td className="px-5 py-3 text-rose-400 text-right font-bold tracking-widest text-xs uppercase">{r.count.toLocaleString()}</td>
+                    </tr>
+                  ))}
                 </tbody>
              </table>
           </div>
         </div>
 
       </div>
+      {err && <div className="mt-4 text-sm text-rose-400 font-semibold">{err}</div>}
     </div>
   )
 }
@@ -327,7 +498,8 @@ function LoginScreen({ onLogin }: { onLogin: (access: string, refresh: string) =
     setError('');
     
     try {
-      const resp = await fetch('http://localhost:8000/api/v1/auth/login', {
+      const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+      const resp = await fetch(`${apiBase}/api/v1/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })

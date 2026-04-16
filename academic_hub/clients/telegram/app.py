@@ -12,13 +12,13 @@ from academic_hub.clients.telegram.renderer import TelegramRenderer
 from academic_hub.clients.telegram.middlewares.concurrency import ConcurrencyGuardMiddleware
 from academic_hub.clients.telegram.managers.sweeper import MemorySweeper
 from academic_hub.domain.services import DeliveryService, NavigationService, SearchService
-from academic_hub.infrastructure.repository import FilesystemContentRepository
+from academic_hub.infrastructure.repository_db import PostgresContentRepository
 
 
 log = logging.getLogger(__name__)
 
 
-def build_dispatcher(bot: Bot, repository: FilesystemContentRepository) -> Dispatcher:
+def build_dispatcher(bot: Bot, repository: PostgresContentRepository) -> Dispatcher:
     dispatcher = Dispatcher(storage=MemoryStorage())
     # Register core execution safety lock 
     dispatcher.update.middleware(ConcurrencyGuardMiddleware())
@@ -38,6 +38,9 @@ async def configure_bot(bot: Bot, dispatcher: Dispatcher) -> MemorySweeper:
             BotCommand(command="start", description="Start"),
             BotCommand(command="menu", description="Main menu"),
             BotCommand(command="help", description="Help"),
+            BotCommand(command="ask", description="Ask a question"),
+            BotCommand(command="top", description="Top questions"),
+            BotCommand(command="my", description="My questions"),
         ]
     )
     
