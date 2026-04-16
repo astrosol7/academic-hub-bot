@@ -14,3 +14,7 @@ class HubStates(StatesGroup):
     report_description = State()
     search = State()
     suggest = State()
+    verify = State()
+    ask_title = State()
+    ask_body = State()
+    answer_body = State()

@@ -22,6 +22,8 @@ class ButtonLabels:
     retry: str = "🔁 Retry"
     exit_search: str = "⬅ Back"
     suggest: str = "💡 Suggest"
+    search_resources: str = "📚 Resources Search"
+    search_community: str = "👥 Community Search"
 
 
 class NavigationService:
@@ -175,14 +177,14 @@ class NavigationService:
             key="search_intro",
             text=(
                 "<b>🔍 Search Mode Active</b>\n\n"
-                "Type what you're looking for.\n\n"
+                "Choose where to search first, then type your query.\n\n"
                 "<b>Examples:</b>\n"
                 "• <i>calculus 1 exams</i>\n"
                 "• <i>physics week 3 notes</i>\n"
-                "• <i>seminar syllabus</i>\n\n"
+                "• <i>python loop question</i>\n\n"
                 "Use specific keywords for better results."
             ),
-            button_rows=((self.labels.back,),),
+            button_rows=((self.labels.search_resources, self.labels.search_community), (self.labels.back,)),
             placeholder="Type your search here...",
         )
 
@@ -267,8 +269,12 @@ class NavigationService:
                 "level": "home", 
                 "section": "search_intro", 
                 "mode": SessionMode.SEARCH,
+                "search_target": "resources",
                 "retry_request": None
             })
+        elif cmd == "search_scope":
+            target = val if val in {"resources", "community"} else "resources"
+            state = state.model_copy(update={"mode": SessionMode.SEARCH, "section": "search_intro", "search_target": target})
         elif cmd == "about":
             state = state.model_copy(update={
                 "level": "home", 

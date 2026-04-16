@@ -3,7 +3,7 @@ import enum
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Integer, Boolean, DateTime, ForeignKey, 
-    Enum as SQLEnum, Text, Index
+    Enum as SQLEnum, Text, Index, UniqueConstraint, CheckConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID, TSVECTOR, JSONB
 from sqlalchemy.ext.declarative import declarative_base
@@ -50,8 +50,11 @@ class QuarantineStatus(str, enum.Enum):
 class Institution(Base):
     __tablename__ = "institutions"
 
-    id = Column(String(50), primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    slug = Column(String(50), unique=True, nullable=False, index=True)
     display_name = Column(String(255), nullable=False)
+    metadata_blob = Column(JSONB, nullable=True) # Full InstitutionManifest JSON
+    
     created_at = Column(DateTime, default=datetime.utcnow)
 
     courses = relationship("Course", back_populates="institution")
@@ -60,7 +63,7 @@ class Course(Base):
     __tablename__ = "courses"
 
     id = Column(String(100), primary_key=True, index=True)
-    institution_id = Column(String(50), ForeignKey("institutions.id"), nullable=False)
+    institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=False, index=True)
     quarter = Column(Integer, nullable=False)
     title = Column(String(255), nullable=False)
     folder_path = Column(String(255), nullable=False)
@@ -68,6 +71,7 @@ class Course(Base):
     # Structure typing as per Unbreakable OS rules
     content_strategy = Column(SQLEnum(ContentStrategy), default=ContentStrategy.WEEK_DRIVEN, nullable=False)
     week_count = Column(Integer, default=0)
+    metadata_blob = Column(JSONB, nullable=True) # Full CourseManifest JSON
     
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -128,7 +132,7 @@ class AdminUser(Base):
     username = Column(String(100), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(SQLEnum(AdminRole), default=AdminRole.ADMIN, nullable=False)
-    institution_id = Column(String(50), ForeignKey("institutions.id"), nullable=True) # Null for SUPER_ADMIN resolving to global access
+    institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=True, index=True) # Null for SUPER_ADMIN resolving to global access
     
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
@@ -137,23 +141,32 @@ class AdminUser(Base):
 class Student(Base):
     __tablename__ = "students"
 
-    id = Column(String(100), primary_key=True, index=True)
+    id = Column(String(100), primary_key=True, index=True)  # School ID (authoritative)
+    institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=False, index=True)
     full_name = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    institution = relationship("Institution")
 
 class TelegramLink(Base):
     __tablename__ = "telegram_links"
 
-    telegram_id = Column(String(100), primary_key=True, index=True)
+    telegram_id = Column(String(100), primary_key=True, index=True)  # Telegram numeric ID as string
+    institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=False, index=True)
     telegram_username = Column(String(255), nullable=True)
-    student_id = Column(String(100), ForeignKey("students.id"), nullable=True, unique=True)
+    student_id = Column(String(100), ForeignKey("students.id"), nullable=True)
     
     # Conflicted lock mappings
     is_conflicted = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     student = relationship("Student")
+    institution = relationship("Institution")
+
+    __table_args__ = (
+        UniqueConstraint("institution_id", "student_id", name="uq_telegram_links_institution_student"),
+        Index("idx_telegram_links_conflict", "institution_id", "is_conflicted"),
+    )
 
 
 # ── LIFECYCLE & SYNC INCIDENTS ──────────────────────────────────
@@ -235,4 +248,89 @@ class UsageInsight(Base):
     insight_type = Column(String(100), nullable=False) # e.g., "top_failed_queries"
     data = Column(JSONB, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── COMMUNITY Q&A (CORE LOOP) ───────────────────────────────────
+
+class QAStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    ANSWERED = "ANSWERED"
+    CLOSED = "CLOSED"
+
+
+class QAVoteValue(int, enum.Enum):
+    DOWN = -1
+    UP = 1
+
+
+class Question(Base):
+    __tablename__ = "questions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=False, index=True)
+    author_telegram_id = Column(String(100), ForeignKey("telegram_links.telegram_id"), nullable=False, index=True)
+
+    course_id = Column(String(100), nullable=True, index=True)  # optional course slug/id
+    title = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+
+    status = Column(SQLEnum(QAStatus), default=QAStatus.OPEN, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    search_text = Column(TSVECTOR)
+
+    institution = relationship("Institution")
+
+    __table_args__ = (
+        Index("idx_questions_search", "search_text", postgresql_using="gin"),
+        Index("idx_questions_institution_created", "institution_id", "created_at"),
+    )
+
+
+class Answer(Base):
+    __tablename__ = "answers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    question_id = Column(UUID(as_uuid=True), ForeignKey("questions.id"), nullable=False, index=True)
+    institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=False, index=True)
+    author_telegram_id = Column(String(100), ForeignKey("telegram_links.telegram_id"), nullable=False, index=True)
+
+    body = Column(Text, nullable=False)
+    is_accepted = Column(Boolean, default=False, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    search_text = Column(TSVECTOR)
+
+    __table_args__ = (
+        Index("idx_answers_search", "search_text", postgresql_using="gin"),
+        Index("idx_answers_question_created", "question_id", "created_at"),
+    )
+
+
+class Vote(Base):
+    __tablename__ = "votes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=False, index=True)
+    voter_telegram_id = Column(String(100), ForeignKey("telegram_links.telegram_id"), nullable=False, index=True)
+
+    question_id = Column(UUID(as_uuid=True), ForeignKey("questions.id"), nullable=True, index=True)
+    answer_id = Column(UUID(as_uuid=True), ForeignKey("answers.id"), nullable=True, index=True)
+
+    value = Column(Integer, nullable=False)  # -1 or +1
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        CheckConstraint("value IN (-1, 1)", name="ck_votes_value_range"),
+        CheckConstraint(
+            "(question_id IS NOT NULL AND answer_id IS NULL) OR (question_id IS NULL AND answer_id IS NOT NULL)",
+            name="ck_votes_target_xor",
+        ),
+        UniqueConstraint("institution_id", "voter_telegram_id", "question_id", name="uq_vote_question_per_user"),
+        UniqueConstraint("institution_id", "voter_telegram_id", "answer_id", name="uq_vote_answer_per_user"),
+        Index("idx_votes_institution_question", "institution_id", "question_id"),
+        Index("idx_votes_institution_answer", "institution_id", "answer_id"),
+    )
 

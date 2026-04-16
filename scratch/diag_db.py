@@ -1,4 +1,11 @@
 import os
+import sys
+from pathlib import Path
+
+# Add root project to path for imports
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 from sqlalchemy import create_engine, inspect
 from dotenv import load_dotenv
 
@@ -8,7 +15,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 print(f"Checking DATABASE_URL: {DATABASE_URL}")
 
 from sqlalchemy.orm import sessionmaker
-from backend.api.models import AdminUser
+from backend.api.database import engine
+from backend.api.models import Base, AdminUser
 
 SessionLocal = sessionmaker(bind=engine)
 db = SessionLocal()

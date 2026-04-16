@@ -21,6 +21,23 @@ def _path_key(path: Path) -> str:
     return path.resolve().as_posix()
 
 
+def _human_size(num_bytes: int) -> str:
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024.0 or unit == "GB":
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{num_bytes} B"
+
+
+def _progress_bar(done: int, total: int, width: int = 12) -> str:
+    if total <= 0:
+        return "░" * width
+    filled = int((done / total) * width)
+    filled = max(0, min(width, filled))
+    return "█" * filled + "░" * (width - filled)
+
+
 class DeliveryCoordinator:
     def __init__(self, *, max_attempts: int = 2, send_delay_seconds: float = 0.5) -> None:
         self.max_attempts = max_attempts
@@ -42,7 +59,16 @@ class DeliveryCoordinator:
         session.delivery_active = True
         await save_session(state, session)
 
-        status_message = await trigger_message.answer(phase_label, parse_mode="HTML")
+        total_bytes = 0
+        for it in items:
+            try:
+                total_bytes += it.path.stat().st_size
+            except OSError:
+                continue
+        status_message = await trigger_message.answer(
+            f"{phase_label}\n\n📦 Batch size: <b>{_human_size(total_bytes)}</b>",
+            parse_mode="HTML",
+        )
         await self._track_transient(state, status_message.message_id)
 
         sent_count = 0
@@ -85,8 +111,19 @@ class DeliveryCoordinator:
                 if path_key in sent_paths or path_key in session.delivery.sent_paths:
                     continue
 
-                dots = "." * ((index - 1) % 3 + 1)
-                progress_text = f"{phase_label}\n\n📤 <b>Sending files ({index}/{len(items)}){dots}</b>\n<i>Interrupting will stop current batch.</i>"
+                file_size = 0
+                try:
+                    file_size = item.path.stat().st_size
+                except OSError:
+                    file_size = 0
+                bar = _progress_bar(index - 1, len(items))
+                progress_text = (
+                    f"{phase_label}\n\n"
+                    f"📤 <b>Sending {index}/{len(items)}</b>\n"
+                    f"{bar}\n"
+                    f"📄 {item.label} — <b>{_human_size(file_size)}</b>\n"
+                    f"<i>Interrupting will stop current batch.</i>"
+                )
                 await self._safe_edit(
                     status_message, 
                     progress_text
@@ -109,6 +146,15 @@ class DeliveryCoordinator:
                 await asyncio.sleep(self.send_delay_seconds)
 
             await self._safe_delete(status_message)
+            done_text = (
+                f"✅ <b>Done.</b>\n"
+                f"Sent: <b>{sent_count}/{len(items)}</b>\n"
+                f"Batch size: <b>{_human_size(total_bytes)}</b>"
+            )
+            if failed_items:
+                done_text += f"\n⚠️ Failed: <b>{len(failed_items)}</b> file(s)."
+            notice = await trigger_message.answer(done_text, parse_mode="HTML")
+            await self._track_transient(state, notice.message_id)
             return SendOutcome(sent_count=sent_count, failed_items=tuple(failed_items), cancelled=False)
             
         except asyncio.CancelledError:

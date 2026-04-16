@@ -25,13 +25,15 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from academic_hub.config import load_config
+from academic_hub.infrastructure.loader import load_course_manifests, load_institution_manifest
+from academic_hub.utils.parsing import normalize_text
 
 config = load_config(require_token=False)
 INSTITUTION_SLUG = config.institution_slug
 LMS_ROOT = ROOT_DIR / "lms" / "pdfs"
 DEST_ROOT = config.resources_root
 
-COURSE_HINTS: list[tuple[str, str, str, int]] = [
+LEGACY_COURSE_HINTS: list[tuple[str, str, str, int]] = [
     ("sit - mathemathics ii", "MATH_1120", "Calculus_II", 2),
     ("sit - mathematics", "MATH_1110", "Calculus_I", 1),
     ("sit - physics ii", "PHYS_1320", "Physics_II", 2),
@@ -44,7 +46,38 @@ COURSE_HINTS: list[tuple[str, str, str, int]] = [
     ("sit - seminar", "SEM_100", "Advising_Seminar", 2),
 ]
 
-COURSE_HINTS.sort(key=lambda x: len(x[0]), reverse=True)
+LEGACY_COURSE_HINTS.sort(key=lambda x: len(x[0]), reverse=True)
+
+
+def _manifest_course_hints() -> list[tuple[str, str, str, int]]:
+    """
+    Build mapping from manifests first (source of truth).
+    Shape: (search_phrase, course_prefix, folder, quarter)
+    """
+    inst = load_institution_manifest(config.manifests_root, config.institution_slug)
+    courses = load_course_manifests(config.manifests_root, inst)
+    hints: list[tuple[str, str, str, int]] = []
+    for course in courses.values():
+        # derive stable prefix from first alias/code token or course id
+        code = None
+        for alias in course.aliases:
+            m = re.search(r"\b[A-Z]{3,5}\s*[_-]?\s*\d{3,5}\b", alias, flags=re.I)
+            if m:
+                code = re.sub(r"\s+", "_", m.group(0).upper())
+                break
+        if not code:
+            code = re.sub(r"[^A-Z0-9]+", "_", course.id.upper()).strip("_")
+
+        search_phrases = [normalize_text(course.title), *(normalize_text(a) for a in course.aliases)]
+        for phrase in search_phrases:
+            if phrase:
+                hints.append((phrase, code, course.folder, int(course.quarter)))
+    # longest phrases first to reduce false positives
+    hints.sort(key=lambda x: len(x[0]), reverse=True)
+    return hints
+
+
+COURSE_HINTS = _manifest_course_hints() + LEGACY_COURSE_HINTS
 
 SUBMISSION_RE = re.compile(
     r"assignsubmission|submission_file|my\s*submission|your\s*submission|"
@@ -83,7 +116,7 @@ def should_skip_path(path: Path, rel: Path) -> bool:
 
 
 def match_course(rel: Path, stem: str) -> tuple[str, str, str, int] | None:
-    blob = "/".join(rel.parts).lower() + " " + stem.lower()
+    blob = normalize_text("/".join(rel.parts) + " " + stem)
     for hint, prefix, folder, quarter in COURSE_HINTS:
         if hint in blob:
             return prefix, folder, f"Quarter_{quarter}", quarter
@@ -295,7 +328,7 @@ def dest_path_for(
     return base / filename
 
 
-def ingest_one(src: Path, rel: Path, dry_run: bool) -> str | None:
+def ingest_one(src: Path, rel: Path, dry_run: bool, quarter_filter: int | None = None) -> str | None:
     if src.suffix.lower() != ".pdf":
         return None
     if should_skip_path(src, rel):
@@ -308,6 +341,8 @@ def ingest_one(src: Path, rel: Path, dry_run: bool) -> str | None:
         quarter = 1
     else:
         prefix, course_folder, quarter_name, quarter = matched
+    if quarter_filter is not None and quarter != quarter_filter:
+        return None
 
     blob = "/".join(rel.parts) + " " + src.stem
 
@@ -348,6 +383,7 @@ def main() -> None:
         description="Ingest lms/pdfs into resources/institutions/<slug>/Quarter_*/ (copy + rename)."
     )
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--quarter", type=int, choices=[1, 2], default=None, help="Only ingest one quarter")
     args = ap.parse_args()
 
     if not LMS_ROOT.is_dir():
@@ -363,7 +399,7 @@ def main() -> None:
             continue
         if ".lms_download_state" in rel.parts:
             continue
-        msg = ingest_one(src, rel, args.dry_run)
+        msg = ingest_one(src, rel, args.dry_run, quarter_filter=args.quarter)
         if not msg:
             continue
         if msg.startswith("skip"):

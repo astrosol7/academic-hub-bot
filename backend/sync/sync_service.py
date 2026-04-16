@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 
 # Fix path to ensure 'backend' and 'academic_hub' are found
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -12,28 +13,28 @@ if str(ROOT_DIR) not in sys.path:
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from backend.api.database import engine as db_engine
 from backend.api.models import (
-    Base, Institution, Course, ResourceCategory, Resource, 
-    Student, ContentStrategy, SyncError, ValidationSeverity
+    Base, Institution, Course, ResourceCategory, Resource,
+    ContentStrategy, SyncError, ValidationSeverity, ResourceStatus
 )
 from academic_hub.config import load_config
+from academic_hub.infrastructure.loader import (
+    load_category_registry, load_institution_manifest, load_course_manifests
+)
+from academic_hub.utils.parsing import (
+    infer_category_slug, humanize_file_label, parse_week_number, canonical_week_folder
+)
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s: %(message)s")
 log = logging.getLogger("sync_service")
 
-# Load modern config
+# Load configuration
 config = load_config(require_token=False)
 
-# Database setup
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    # Fallback to .env manually if not loaded
-    from dotenv import load_dotenv
-    load_dotenv(ROOT_DIR / ".env")
-    DATABASE_URL = os.getenv("DATABASE_URL")
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SUPPORTED_EXTENSIONS = {".pdf", ".ppt", ".pptx", ".doc", ".docx", ".zip"}
 
 class SyncPipeline:
     def __init__(self, manifests_root: Path, resources_root: Path):
@@ -43,130 +44,147 @@ class SyncPipeline:
         self.errors = []
         
     def run(self):
+        log.info("🚀 Starting Hardened Sync Pipeline...")
         try:
-            self._ingest_students()
-            self._ingest_metadata()
-            self._ingest_resources()
-            self._evaluate_errors()
+            category_registry = load_category_registry(self.manifests_root)
+            institution_manifest = load_institution_manifest(self.manifests_root, config.institution_slug)
+            course_manifests = load_course_manifests(self.manifests_root, institution_manifest)
+
+            self._sync_categories(category_registry)
+            self._sync_institution(institution_manifest)
+            self._sync_courses(course_manifests, institution_manifest)
+            
+            log.info("✨ Sync complete.")
+        except Exception as e:
+            log.exception(f"💥 Sync failed: {e}")
+            self.db.rollback()
         finally:
             self.db.close()
 
-    def _log_quarantine(self, path: Path, reason: str, metadata: dict = None, severity=ValidationSeverity.WARNING):
-        error = SyncError(
-            file_path=str(path),
-            reason=reason,
-            severity=severity,
-            raw_metadata=json.dumps(metadata) if metadata else None
-        )
-        self.db.add(error)
+    def _sync_categories(self, registry: dict):
+        log.info("⚙️ Syncing categories...")
+        for slug, cat in registry.items():
+            db_cat = self.db.query(ResourceCategory).filter_by(slug=slug).first()
+            if not db_cat:
+                db_cat = ResourceCategory(
+                    slug=slug,
+                    label=cat.label,
+                    icon=cat.icon,
+                    sendable=cat.sendable
+                )
+                self.db.add(db_cat)
+            else:
+                db_cat.label = cat.label
+                db_cat.icon = cat.icon
+                db_cat.sendable = cat.sendable
         self.db.commit()
-        self.errors.append(error)
 
-    def _evaluate_errors(self):
-        if len(self.errors) >= 3:
-            log.warning(f"THRESHOLD EXCEEDED: {len(self.errors)} files failed validation and were quarantined. Triggering Admin Alert.")
-        else:
-            log.info(f"Sync complete. {len(self.errors)} anomalies quarantined.")
-
-    def _ingest_students(self):
-        # Database now seeded directly from Dashboard UI. Passing test record.
-        test_student_id = "test_123"
-        if not self.db.query(Student).filter_by(id=test_student_id).first():
-            student = Student(id=test_student_id, full_name="Admin Verified User")
-            self.db.add(student)
+    def _sync_institution(self, manifest):
+        log.info(f"⚙️ Syncing institution: {manifest.slug}")
+        inst = self.db.query(Institution).filter_by(slug=manifest.slug).first()
+        if not inst:
+            inst = Institution(
+                slug=manifest.slug,
+                display_name=manifest.display_name,
+                metadata_blob=manifest.model_dump(mode="json")
+            )
+            self.db.add(inst)
             self.db.commit()
-            log.info("Student Verification DB seeded with Admin User.")
+            self.db.refresh(inst)
+        else:
+            inst.display_name = manifest.display_name
+            inst.metadata_blob = manifest.model_dump(mode="json")
+            self.db.commit()
+        return inst
 
-    def _ingest_metadata(self):
-        # Maps categories and institutions into the core tables.
-        cat_file = self.manifests_root / "categories.json"
-        if not cat_file.exists():
-            log.error(f"Manifest missing: {cat_file}")
+    def _sync_courses(self, manifests: dict, institution_manifest):
+        inst = self.db.query(Institution).filter_by(slug=institution_manifest.slug).first()
+        
+        for course_id, manifest in manifests.items():
+            log.info(f"📚 Syncing course: {course_id} ({manifest.title})")
+            course = self.db.query(Course).filter_by(id=course_id).first()
+            
+            strategy = ContentStrategy.WEEK_DRIVEN if manifest.supports_weeks else ContentStrategy.TOPIC_DRIVEN
+            
+            if not course:
+                course = Course(
+                    id=course_id,
+                    institution_id=inst.id,
+                    quarter=manifest.quarter,
+                    title=manifest.title,
+                    folder_path=manifest.folder,
+                    content_strategy=strategy,
+                    week_count=manifest.week_count,
+                    metadata_blob=manifest.model_dump(mode="json")
+                )
+                self.db.add(course)
+            else:
+                course.title = manifest.title
+                course.quarter = manifest.quarter
+                course.folder_path = manifest.folder
+                course.content_strategy = strategy
+                course.week_count = manifest.week_count
+                course.metadata_blob = manifest.model_dump(mode="json")
+            
+            self.db.flush()
+            self._sync_course_resources(course, manifest)
+        
+        self.db.commit()
+
+    def _sync_course_resources(self, course: Course, manifest):
+        # 1. Top-level files
+        course_dir = self.resources_root / f"Quarter_{course.quarter}" / manifest.folder
+        if not course_dir.is_dir():
+            log.warning(f"⚠️ Course directory not found: {course_dir}")
             return
 
-        with open(cat_file, 'r', encoding='utf-8') as f:
-            for cat in json.load(f):
-                if not self.db.query(ResourceCategory).filter_by(slug=cat['slug']).first():
-                    rc = ResourceCategory(
-                        slug=cat['slug'], 
-                        label=cat['label'], 
-                        icon=cat.get('icon', ''),
-                        sendable=cat.get('sendable', True)
-                    )
-                    self.db.add(rc)
+        # Simple crawl matching legacy logic
+        self._crawl_directory(course, course_dir, week_number=None)
+        
+        # 2. Weekly files
+        if manifest.supports_weeks:
+            week_root = course_dir / "weeks"
+            for week_num in range(1, manifest.week_count + 1):
+                week_dir = week_root / canonical_week_folder(week_num)
+                if week_dir.is_dir():
+                    self._crawl_directory(course, week_dir, week_number=week_num)
 
-        # Ingest Institutions
-        sit = Institution(id="sit", display_name="Singapore Institute of Technology")
-        self.db.merge(sit)
-        self.db.commit()
-        
-    def _ingest_resources(self):
-        # We parse Quarter 1 -> Courses -> Files strictly through Validation Gates.
-        sit = self.db.query(Institution).filter_by(id="sit").first()
-        
-        # Look for all Quarter_* folders
-        for quarter_root in sorted(self.resources_root.glob("Quarter_*")):
-            if not quarter_root.is_dir():
+    def _crawl_directory(self, course: Course, directory: Path, week_number: Optional[int]):
+        for path in directory.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
-            
-            quarter_num = int(quarter_root.name.split("_")[1])
-            log.info(f"Processing {quarter_root.name}...")
-                
-            for folder in quarter_root.iterdir():
-                if not folder.is_dir():
-                    continue
-                    
-                course_id = folder.name.upper().replace(" ", "_")
-                course = self.db.query(Course).filter_by(id=course_id).first()
-                if not course:
-                    course = Course(
-                        id=course_id, institution_id=sit.id, quarter=quarter_num, 
-                        title=folder.name.replace("_", " ").title(),
-                        folder_path=str(folder.relative_to(self.resources_root)),
-                        content_strategy=ContentStrategy.WEEK_DRIVEN
-                    )
-                    self.db.add(course)
-                    self.db.flush()
-
-                self._traverse_course_drive(course, folder)
-        self.db.commit()
-
-    def _traverse_course_drive(self, course: Course, folder: Path):
-        for path in folder.rglob("*.pdf"):
-            if path.is_dir() or path.name.startswith("."):
+            if path.name.startswith(".") or "__pycache__" in path.parts:
                 continue
                 
+            rel_path = str(path.relative_to(self.resources_root))
             file_hash = str(path.stat().st_mtime)
-            title = path.stem.replace("_", " ")
-            parent = path.parent.name.lower()
             
-            # Simple heuristic mapping
-            category_slug = "readings"
-            if "exam" in parent: category_slug = "exams"
-            elif "note" in parent: category_slug = "lecture_notes"
-            elif "assignment" in parent: category_slug = "assignments"
+            # Use bot's inference logic
+            category_slug = infer_category_slug(path)
+            title = humanize_file_label(path.stem)
             
-            week_num = None
-            if parent.startswith("week_"):
-                try:
-                    week_num = int(parent.split("_")[1])
-                except ValueError:
-                    continue
-                    
-            res = self.db.query(Resource).filter_by(external_path=str(path)).first()
+            res = self.db.query(Resource).filter_by(external_path=rel_path).first()
             if not res:
                 res = Resource(
-                    course_id=course.id, category_slug=category_slug, external_path=str(path),
-                    title=title, week_number=week_num, file_hash=file_hash
+                    course_id=course.id,
+                    category_slug=category_slug,
+                    external_path=rel_path,
+                    title=title,
+                    week_number=week_number,
+                    file_hash=file_hash,
+                    status=ResourceStatus.ACTIVE,
+                    source_type="system"
                 )
                 self.db.add(res)
-            elif res.file_hash != file_hash:
+                log.debug(f"Added resource: {title}")
+            else:
+                res.title = title
+                res.category_slug = category_slug
+                res.week_number = week_number
                 res.file_hash = file_hash
-                res.updated_at = datetime.utcnow()
+                res.status = ResourceStatus.ACTIVE
 
 if __name__ == "__main__":
-    # Removed destructive recreate_db() to protect Admin users.
-    
     pipeline = SyncPipeline(
         manifests_root=config.manifests_root,
         resources_root=config.resources_root

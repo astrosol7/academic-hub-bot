@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional
 from datetime import datetime
 from dotenv import load_dotenv
@@ -9,31 +10,77 @@ load_dotenv(override=True)
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from backend.api.database import get_db
+from backend.api.database import get_db, engine
 from backend.api.models import (
+    Base,
     Resource, ResourceStatus, Course, ResourceCategory,
     IngestionLog, UsageSignal, ReportSubmission, ReportContextType, ReportStatus
 )
 from backend.api.auth import router as auth_router
+from backend.api.bot import router as bot_router
+from backend.api.admin import router as admin_router
+from backend.api.qa import router as qa_router
+from backend.api.security import SimpleRateLimitMiddleware, RateLimitRule
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("api")
 
 app = FastAPI(title="Academic Hub - Orbit V1 API")
 
+# Baseline rate limiting (single-node)
+app.add_middleware(
+    SimpleRateLimitMiddleware,
+    rules={
+        "/api/v1/auth/bootstrap": RateLimitRule(window_seconds=300, max_requests=5),
+        "/api/v1/auth/login": RateLimitRule(window_seconds=60, max_requests=12),
+        "/api/v1/auth/refresh": RateLimitRule(window_seconds=60, max_requests=30),
+        "/api/v1/bot/bind": RateLimitRule(window_seconds=60, max_requests=20),
+        "/api/v1/bot/": RateLimitRule(window_seconds=60, max_requests=90),
+        "/api/v1/qa/vote": RateLimitRule(window_seconds=60, max_requests=120),
+        "/api/v1/admin/": RateLimitRule(window_seconds=60, max_requests=240),
+    },
+)
+
+# ── STARTUP: DB INIT & EXTENSIONS ───────────────────────────────
+
+@app.on_event("startup")
+def _startup_db_init() -> None:
+    """
+    Bootstrap DB schema for local/dev.
+    For production scaling, this should be replaced with migrations (Alembic),
+    but we still keep safe extension creation here.
+    """
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
+    except Exception as e:
+        log.warning(f"DB extension init failed (ok if not Postgres): {e}")
+
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        log.error(f"DB schema init failed: {e}")
+        raise
+
 # CORS for dashboard access
+_raw_origins = (os.environ.get("ORBIT_ALLOWED_ORIGINS") or "http://localhost:5173,http://127.0.0.1:5173")
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(auth_router)
+app.include_router(bot_router)
+app.include_router(admin_router)
+app.include_router(qa_router)
 
 # ── REQUEST/RESPONSE MODELS ────────────────────────────────────
 
@@ -61,10 +108,12 @@ class SearchResultItem(BaseModel):
     category_slug: str
     week_number: Optional[int] = None
     score: float = 0.0
+    kind: str = "resource"  # resource | question
 
 class SearchResponse(BaseModel):
     results: list[SearchResultItem] = []
     engine: str = "none"  # tsquery_hit | trigram_hit | none
+    suggestions: list[str] = []
 
 class TelemetryEvent(BaseModel):
     user_id: str
@@ -91,7 +140,7 @@ def search_resources(payload: SearchRequest, db: Session = Depends(get_db)):
     if not query_text or len(query_text) < 2:
         return SearchResponse(results=[], engine="none")
 
-    # Engine 1: TSVector full-text search
+    # Engine 1: TSVector full-text search (resources)
     try:
         ts_results = db.query(Resource).filter(
             Resource.status == ResourceStatus.ACTIVE,
@@ -109,13 +158,16 @@ def search_resources(payload: SearchRequest, db: Session = Depends(get_db)):
                     score=1.0
                 ) for r in ts_results
             ]
-            return SearchResponse(results=items, engine="tsquery_hit")
+            return SearchResponse(results=items, engine="tsquery_hit", suggestions=[])
     except Exception as e:
         log.warning(f"TSVector search failed (likely no data yet): {e}")
 
     # Engine 2: pg_trgm similarity fallback
     try:
-        trgm_results = db.query(Resource).filter(
+        trgm_results = db.query(
+            Resource,
+            func.similarity(Resource.title, query_text).label("sim_score")
+        ).filter(
             Resource.status == ResourceStatus.ACTIVE,
             func.similarity(Resource.title, query_text) > 0.3
         ).order_by(
@@ -125,21 +177,33 @@ def search_resources(payload: SearchRequest, db: Session = Depends(get_db)):
         if trgm_results:
             items = [
                 SearchResultItem(
-                    resource_id=str(r.id),
-                    title=r.title,
-                    course_id=r.course_id,
-                    category_slug=r.category_slug,
-                    week_number=r.week_number,
-                    score=round(float(db.execute(
-                        func.similarity(Resource.title, query_text)
-                    ).scalar() or 0), 2)
-                ) for r in trgm_results
+                    resource_id=str(row[0].id),
+                    title=row[0].title,
+                    course_id=row[0].course_id,
+                    category_slug=row[0].category_slug,
+                    week_number=row[0].week_number,
+                    score=round(float(row[1] or 0), 4)
+                ) for row in trgm_results
             ]
-            return SearchResponse(results=items, engine="trigram_hit")
+            return SearchResponse(results=items, engine="trigram_hit", suggestions=[])
     except Exception as e:
         log.warning(f"pg_trgm search failed (extension may not be enabled): {e}")
 
-    return SearchResponse(results=[], engine="none")
+    # Suggestion: closest titles from resources (typo correction hint)
+    suggestions: list[str] = []
+    try:
+        sug_rows = (
+            db.query(Resource.title)
+            .filter(Resource.status == ResourceStatus.ACTIVE)
+            .order_by(func.similarity(Resource.title, query_text).desc())
+            .limit(5)
+            .all()
+        )
+        suggestions = [r[0] for r in sug_rows if r and r[0]]
+    except Exception:
+        suggestions = []
+
+    return SearchResponse(results=[], engine="none", suggestions=suggestions)
 
 # ── TELEMETRY ENDPOINT ─────────────────────────────────────────
 
@@ -159,6 +223,27 @@ def log_telemetry(event: TelemetryEvent, db: Session = Depends(get_db)):
         log.warning(f"Telemetry write failed: {e}")
         db.rollback()
         return {"status": "dropped"}
+
+
+@app.get("/api/v1/admin/analytics/dau")
+def admin_dau(days: int = 7, db: Session = Depends(get_db)):
+    """
+    Daily active users for last N days (based on any telemetry event).
+    """
+    # lightweight and fast: bucket by date
+    sql = text(
+        """
+        SELECT
+          DATE(timestamp) AS day,
+          COUNT(DISTINCT user_id)::int AS dau
+        FROM usage_signals
+        WHERE timestamp >= NOW() - (:days || ' days')::interval
+        GROUP BY DATE(timestamp)
+        ORDER BY day DESC
+        """
+    )
+    rows = db.execute(sql, {"days": min(max(days, 1), 60)}).fetchall()
+    return [{"day": str(r[0]), "dau": int(r[1])} for r in rows]
 
 # ── INCIDENT REPORTING ENDPOINT ────────────────────────────────
 @app.post("/api/v1/incidents")
