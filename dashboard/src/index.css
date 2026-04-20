@@ -1,29 +1,87 @@
 @import "tailwindcss";
 
+@theme {
+  --color-orbit-bg: var(--orbit-bg);
+  --color-orbit-fg: var(--orbit-fg);
+  --color-orbit-surface: var(--orbit-surface);
+  --color-orbit-border: var(--orbit-border);
+  --color-orbit-primary: var(--orbit-primary);
+  --color-orbit-accent: var(--orbit-accent);
+}
+
 :root {
-  --background: #0f1115;
-  --foreground: #e2e8f0;
-  --card: #161b22;
-  --card-border: #30363d;
-  --primary: #58a6ff;
-  --accent: #238636;
-  --danger: #f85149;
+  /* Night Mode (Default) */
+  --orbit-bg: #05070a;
+  --orbit-fg: #e2e8f0;
+  --orbit-surface: rgba(16, 21, 28, 0.7);
+  --orbit-border: #1e293b;
+  --orbit-primary: #3b82f6;
+  --orbit-accent: #10b981;
+  
+  /* Density: Spacious (Default) */
+  --spacing-scale: 1;
+}
+
+[data-theme='light'] {
+  --orbit-bg: #f8fafc;
+  --orbit-fg: #0f172a;
+  --orbit-surface: rgba(255, 255, 255, 0.8);
+  --orbit-border: #e2e8f0;
+  --orbit-primary: #2563eb;
+  --orbit-accent: #059669;
+}
+
+[data-density='dense'] {
+  --spacing-scale: 0.75;
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  background-color: var(--orbit-bg);
+  color: var(--orbit-fg);
+  font-family: 'Inter', system-ui, sans-serif;
   margin: 0;
-  display: flex;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .glass-panel {
-  background: rgba(22, 27, 34, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--card-border);
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  background: var(--orbit-surface);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--orbit-border);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.orbit-glow {
+  box-shadow: 0 0 20px -5px var(--orbit-primary);
+}
+
+.density-aware {
+  padding: calc(1.5rem * var(--spacing-scale));
+}
+
+.density-aware-gap {
+  gap: calc(1.5rem * var(--spacing-scale));
+}
+
+@keyframes pulse-glow {
+  0% { opacity: 0.1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 0.1; }
+}
+
+.nebula-bg {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, var(--orbit-primary) 0%, transparent 70%);
+  filter: blur(100px);
+  opacity: 0.15;
+  pointer-events: none;
+  animation: pulse-glow 8s infinite ease-in-out;
+  z-index: -1;
 }

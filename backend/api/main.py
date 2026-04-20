@@ -13,7 +13,7 @@ from pydantic import BaseModel, HttpUrl
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from backend.api.database import get_db, engine
+from backend.api.database_postgresql import get_db, engine, init_database
 from backend.api.models import (
     Base,
     Resource, ResourceStatus, Course, ResourceCategory,
@@ -23,6 +23,7 @@ from backend.api.auth import router as auth_router
 from backend.api.bot import router as bot_router
 from backend.api.admin import router as admin_router
 from backend.api.qa import router as qa_router
+from backend.api.public import router as public_router
 from backend.api.security import SimpleRateLimitMiddleware, RateLimitRule
 
 logging.basicConfig(level=logging.INFO)
@@ -50,21 +51,11 @@ app.add_middleware(
 def _startup_db_init() -> None:
     """
     Bootstrap DB schema for local/dev.
-    For production scaling, this should be replaced with migrations (Alembic),
-    but we still keep safe extension creation here.
     """
-    try:
-        with engine.begin() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
-    except Exception as e:
-        log.warning(f"DB extension init failed (ok if not Postgres): {e}")
-
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception as e:
-        log.error(f"DB schema init failed: {e}")
-        raise
+    if init_database():
+        log.info("PostgreSQL Orbital Database initialized successfully")
+    else:
+        log.error("CRITICAL: Database initialization failed")
 
 # CORS for dashboard access
 _raw_origins = (os.environ.get("ORBIT_ALLOWED_ORIGINS") or "http://localhost:5173,http://127.0.0.1:5173")
@@ -81,6 +72,7 @@ app.include_router(auth_router)
 app.include_router(bot_router)
 app.include_router(admin_router)
 app.include_router(qa_router)
+app.include_router(public_router)
 
 # ── REQUEST/RESPONSE MODELS ────────────────────────────────────
 
