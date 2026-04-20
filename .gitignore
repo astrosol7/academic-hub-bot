@@ -44,3 +44,10 @@ Thumbs.db
 # JWT / Auth secrets
 *.pem
 *.key
+
+# Desktop App Binaries
+desktop-app/dist/
+desktop-app/node_modules/
+student_app/dist/
+student_app/node_modules/
+

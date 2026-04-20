@@ -2,7 +2,11 @@ import os
 import bcrypt
 import jwt
 import uuid
+import hmac
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qsl
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -19,6 +23,34 @@ ALGORITHM = "HS256"
 
 router = APIRouter()
 audit_log = logging.getLogger("security.audit")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+def validate_telegram_init_data(init_data: str) -> dict:
+    """
+    Validates the data received from the Telegram Mini App.
+    See: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+    """
+    if not BOT_TOKEN:
+        raise HTTPException(status_code=500, detail="Bot token not configured")
+    
+    vals = dict(parse_qsl(init_data))
+    if "hash" not in vals:
+        raise HTTPException(status_code=401, detail="Missing hash in initData")
+    
+    received_hash = vals.pop("hash")
+    data_check_string = "\n".join([f"{k}={v}" for k, v in sorted(vals.items())])
+    
+    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    expected_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    
+    if expected_hash != received_hash:
+        raise HTTPException(status_code=401, detail="Invalid data signature")
+        
+    try:
+        user_data = json.loads(vals["user"])
+        return user_data
+    except (KeyError, json.JSONDecodeError):
+        raise HTTPException(status_code=401, detail="Invalid user data in initData")
 
 # ── SECURITY HELPERS ───────────────────────────────────────────
 
@@ -76,6 +108,9 @@ class LoginRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+class TMAPayload(BaseModel):
+    init_data: str
 
 # ── HASHING UTILS (RAW BCRYPT) ────────────────────────────────
 
@@ -164,4 +199,23 @@ def refresh_tokens(payload: RefreshRequest, db: Session = Depends(get_db)):
     access = create_token({"sub": str(user.id), "role": user.role.value}, timedelta(minutes=30))
     refresh = create_token({"sub": str(user.id), "refresh": True}, timedelta(days=7))
     audit_log.info("event=auth_refresh_success user=%s", user.username)
+    return TokenResponse(access_token=access, refresh_token=refresh)
+
+@router.post("/api/v1/auth/tma", response_model=TokenResponse)
+def tma_login(payload: TMAPayload, db: Session = Depends(get_db)):
+    """
+    Identity Gateway for Students. Validates Telegram initData and issues a JWT.
+    """
+    user_data = validate_telegram_init_data(payload.init_data)
+    telegram_id = str(user_data.get("id"))
+    
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Missing telegram ID")
+        
+    # In Orbit v1, students don't have separate AdminUser accounts, 
+    # so we issue a token with 'role':'student' and sub=telegram_id.
+    access = create_token({"sub": telegram_id, "role": "student", "name": user_data.get("first_name")}, timedelta(days=1))
+    refresh = create_token({"sub": telegram_id, "refresh": True, "role": "student"}, timedelta(days=30))
+    
+    audit_log.info("event=tma_login_success telegram_id=%s", telegram_id)
     return TokenResponse(access_token=access, refresh_token=refresh)

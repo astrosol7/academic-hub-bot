@@ -1,0 +1,77 @@
+{
+  "name": "orbit-control-center",
+  "version": "1.0.0",
+  "description": "Orbit Control Center - Ultimate System Control for Academic Hub",
+  "main": "public/electron.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron-pack": "electron-builder",
+    "preelectron-pack": "npm run build"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "react-scripts": "5.0.1",
+    "@tailwindcss/vite": "^4.2.2",
+    "lucide-react": "^1.8.0",
+    "tailwindcss": "^4.2.2",
+    "axios": "^1.6.0",
+    "recharts": "^2.12.0",
+    "react-hot-toast": "^2.4.1",
+    "framer-motion": "^10.16.0",
+    "date-fns": "^2.30.0",
+    "react-table": "^7.8.0",
+    "react-virtualized": "^9.22.5"
+  },
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/node": "^20.8.0",
+    "typescript": "^4.9.5"
+  },
+  "build": {
+    "appId": "com.academic-hub.orbit-control",
+    "productName": "Orbit Control Center",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "build/**/*",
+      "public/electron.js",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
