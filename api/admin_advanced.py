@@ -11,12 +11,12 @@ from sqlalchemy import func, text, desc, asc
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from backend.api.database_sqlite import get_db
-from backend.api.models import (
+from api.database_sqlite import get_db
+from api.models import (
     Resource, Course, Institution, UsageSignal, ReportSubmission,
     IngestionLog, ResourceStatus
 )
-from backend.api.error_handling import orbit_log, circuit_breaker, retry_manager
+from api.error_handling import orbit_log, circuit_breaker, retry_manager
 
 router = APIRouter(prefix="/api/v1/admin/advanced", tags=["admin-advanced"])
 

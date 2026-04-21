@@ -8,10 +8,10 @@ from pydantic import BaseModel
 from sqlalchemy import func, desc, text
 from sqlalchemy.orm import Session
 
-from backend.api.database import get_db
-from backend.api.auth import get_current_admin
-from backend.api.utils import resolve_limit
-from backend.api.models import (
+from api.database import get_db
+from api.auth import get_current_admin
+from api.utils import resolve_limit
+from api.models import (
     AdminUser,
     AdminRole,
     Institution,
@@ -476,7 +476,7 @@ def create_admin(
     if db.query(AdminUser).filter(AdminUser.username == payload.username).first():
         raise HTTPException(status_code=409, detail="Username already exists")
 
-    from backend.api.auth import get_password_hash
+    from api.auth import get_password_hash
 
     inst_id = None
     if payload.role != AdminRole.SUPER_ADMIN:

@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, desc, text
 from sqlalchemy.orm import Session
 
-from backend.api.database import get_db
-from backend.api.models import Institution, TelegramLink, Question, Answer, Vote, QAStatus
-from backend.api.utils import resolve_limit
+from api.database import get_db
+from api.models import Institution, TelegramLink, Question, Answer, Vote, QAStatus
+from api.utils import resolve_limit
 
 
 router = APIRouter()
