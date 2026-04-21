@@ -62,8 +62,10 @@ class DeliveryCoordinator:
         total_bytes = 0
         for it in items:
             try:
-                total_bytes += it.path.stat().st_size
-            except OSError:
+                p = Path(it.path)
+                if p.exists():
+                    total_bytes += p.stat().st_size
+            except (OSError, AttributeError):
                 continue
         status_message = await trigger_message.answer(
             f"{phase_label}\n\n📦 Batch size: <b>{_human_size(total_bytes)}</b>",
@@ -107,13 +109,14 @@ class DeliveryCoordinator:
                     await self._notify_cancel_once(trigger_message, state)
                     return SendOutcome(sent_count=sent_count, failed_items=tuple(failed_items), cancelled=True)
 
-                path_key = _path_key(item.path)
+                item_path = Path(item.path)
+                path_key = _path_key(item_path)
                 if path_key in sent_paths or path_key in session.delivery.sent_paths:
                     continue
 
                 file_size = 0
                 try:
-                    file_size = item.path.stat().st_size
+                    file_size = item_path.stat().st_size
                 except OSError:
                     file_size = 0
                 bar = _progress_bar(index - 1, len(items))
@@ -139,7 +142,7 @@ class DeliveryCoordinator:
                         state,
                         delivery_id,
                         sent_paths=sent_paths,
-                        failed_paths={_path_key(failed.path) for failed in failed_items},
+                        failed_paths={_path_key(Path(failed.path)) for failed in failed_items},
                     )
 
                 # Throttle to respect Telegram limits
@@ -184,7 +187,7 @@ class DeliveryCoordinator:
             try:
                 # Sprint 1: Renderers will own captions completely in Sprint 3
                 await message.answer_document(
-                    FSInputFile(item.path)
+                    FSInputFile(Path(item.path))
                 )
                 return True
             except TelegramRetryAfter as exc:

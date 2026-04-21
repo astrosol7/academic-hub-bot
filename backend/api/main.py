@@ -2,6 +2,7 @@ import logging
 import os
 from typing import Optional
 from datetime import datetime
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Load environment variables before any other imports (Force override on reload)
@@ -9,14 +10,15 @@ load_dotenv(override=True)
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import func, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from backend.api.database_postgresql import get_db, engine, init_database
 from backend.api.models import (
     Base,
-    Resource, ResourceStatus, Course, ResourceCategory,
+    Resource, ResourceStatus, Course, Institution, ResourceCategory,
+    AdminUser, AdminRole,
     IngestionLog, UsageSignal, ReportSubmission, ReportContextType, ReportStatus
 )
 from backend.api.auth import router as auth_router
@@ -24,6 +26,7 @@ from backend.api.bot import router as bot_router
 from backend.api.admin import router as admin_router
 from backend.api.qa import router as qa_router
 from backend.api.public import router as public_router
+from backend.api.utils import resolve_limit
 from backend.api.security import SimpleRateLimitMiddleware, RateLimitRule
 
 logging.basicConfig(level=logging.INFO)
@@ -92,20 +95,34 @@ class CISIngestResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     user_id: Optional[str] = None
+    institution_slug: Optional[str] = None
+    course_id: Optional[str] = None
+    category_slug: Optional[str] = None
+    limit: int = 12
 
 class SearchResultItem(BaseModel):
     resource_id: str
     title: str
     course_id: str
+    course_title: str
+    institution_slug: str
+    institution_name: str
     category_slug: str
+    category_name: str
     week_number: Optional[int] = None
+    topic_group: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
     score: float = 0.0
     kind: str = "resource"  # resource | question
+    source_type: str = "system"
+    created_at: Optional[datetime] = None
+    access_url: Optional[str] = None
+    available_in_web: bool = False
 
 class SearchResponse(BaseModel):
-    results: list[SearchResultItem] = []
+    results: list[SearchResultItem] = Field(default_factory=list)
     engine: str = "none"  # tsquery_hit | trigram_hit | none
-    suggestions: list[str] = []
+    suggestions: list[str] = Field(default_factory=list)
 
 class TelemetryEvent(BaseModel):
     user_id: str
@@ -120,6 +137,62 @@ class IncidentCreate(BaseModel):
     context_type: ReportContextType = ReportContextType.ISSUE
 
 
+def _split_tags(raw_tags: Optional[str]) -> list[str]:
+    if not raw_tags:
+        return []
+    return [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
+
+
+def _safe_access_url(path: str) -> Optional[str]:
+    parsed = urlparse(path)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return path
+    return None
+
+
+def _apply_search_filters(query, payload: SearchRequest):
+    if payload.institution_slug:
+        query = query.join(Course, Resource.course_id == Course.id).join(
+            Institution, Course.institution_id == Institution.id
+        )
+        query = query.filter(Institution.slug == payload.institution_slug)
+
+    if payload.course_id:
+        query = query.filter(Resource.course_id == payload.course_id)
+
+    if payload.category_slug:
+        query = query.filter(Resource.category_slug == payload.category_slug)
+
+    return query
+
+
+def _build_search_result(resource: Resource, score: float) -> SearchResultItem:
+    course = resource.course
+    institution = course.institution if course else None
+    category = resource.category
+    access_url = _safe_access_url(resource.external_path)
+
+    return SearchResultItem(
+        resource_id=str(resource.id),
+        title=resource.title,
+        course_id=resource.course_id,
+        course_title=course.title if course else resource.course_id,
+        institution_slug=institution.slug if institution else "",
+        institution_name=institution.display_name if institution else "",
+        category_slug=resource.category_slug,
+        category_name=category.label if category else resource.category_slug,
+        week_number=resource.week_number,
+        topic_group=resource.topic_group,
+        tags=_split_tags(resource.tags),
+        score=score,
+        kind="resource",
+        source_type=resource.source_type,
+        created_at=resource.created_at,
+        access_url=access_url,
+        available_in_web=access_url is not None,
+    )
+
+
 # ── SEARCH ENDPOINT (HTTP BRIDGE) ──────────────────────────────
 
 @app.post("/api/v1/search", response_model=SearchResponse)
@@ -132,23 +205,23 @@ def search_resources(payload: SearchRequest, db: Session = Depends(get_db)):
     if not query_text or len(query_text) < 2:
         return SearchResponse(results=[], engine="none")
 
+    limit = resolve_limit(payload.limit, role="public")
+    eager_options = (
+        joinedload(Resource.course).joinedload(Course.institution),
+        joinedload(Resource.category),
+    )
+
     # Engine 1: TSVector full-text search (resources)
     try:
-        ts_results = db.query(Resource).filter(
+        ts_query = db.query(Resource).options(*eager_options).filter(
             Resource.status == ResourceStatus.ACTIVE,
             Resource.search_text.op("@@")(func.plainto_tsquery("english", query_text))
-        ).limit(10).all()
+        )
+        ts_results = _apply_search_filters(ts_query, payload).limit(limit).all()
 
         if ts_results:
             items = [
-                SearchResultItem(
-                    resource_id=str(r.id),
-                    title=r.title,
-                    course_id=r.course_id,
-                    category_slug=r.category_slug,
-                    week_number=r.week_number,
-                    score=1.0
-                ) for r in ts_results
+                _build_search_result(r, 1.0) for r in ts_results
             ]
             return SearchResponse(results=items, engine="tsquery_hit", suggestions=[])
     except Exception as e:
@@ -156,26 +229,21 @@ def search_resources(payload: SearchRequest, db: Session = Depends(get_db)):
 
     # Engine 2: pg_trgm similarity fallback
     try:
-        trgm_results = db.query(
+        trgm_query = db.query(
             Resource,
             func.similarity(Resource.title, query_text).label("sim_score")
-        ).filter(
+        ).options(*eager_options).filter(
             Resource.status == ResourceStatus.ACTIVE,
             func.similarity(Resource.title, query_text) > 0.3
-        ).order_by(
+        )
+        trgm_results = _apply_search_filters(trgm_query, payload).order_by(
             func.similarity(Resource.title, query_text).desc()
-        ).limit(10).all()
+        ).limit(limit).all()
 
         if trgm_results:
             items = [
-                SearchResultItem(
-                    resource_id=str(row[0].id),
-                    title=row[0].title,
-                    course_id=row[0].course_id,
-                    category_slug=row[0].category_slug,
-                    week_number=row[0].week_number,
-                    score=round(float(row[1] or 0), 4)
-                ) for row in trgm_results
+                _build_search_result(row[0], round(float(row[1] or 0), 4))
+                for row in trgm_results
             ]
             return SearchResponse(results=items, engine="trigram_hit", suggestions=[])
     except Exception as e:
@@ -184,9 +252,11 @@ def search_resources(payload: SearchRequest, db: Session = Depends(get_db)):
     # Suggestion: closest titles from resources (typo correction hint)
     suggestions: list[str] = []
     try:
+        suggestion_query = db.query(Resource.title).filter(
+            Resource.status == ResourceStatus.ACTIVE
+        )
         sug_rows = (
-            db.query(Resource.title)
-            .filter(Resource.status == ResourceStatus.ACTIVE)
+            _apply_search_filters(suggestion_query, payload)
             .order_by(func.similarity(Resource.title, query_text).desc())
             .limit(5)
             .all()
@@ -234,7 +304,7 @@ def admin_dau(days: int = 7, db: Session = Depends(get_db)):
         ORDER BY day DESC
         """
     )
-    rows = db.execute(sql, {"days": min(max(days, 1), 60)}).fetchall()
+    rows = db.execute(sql, {"days": min(max(days, 1), 90)}).fetchall()
     return [{"day": str(r[0]), "dau": int(r[1])} for r in rows]
 
 # ── INCIDENT REPORTING ENDPOINT ────────────────────────────────
@@ -336,15 +406,21 @@ def ingest_resource(payload: CISIngestRequest, db: Session = Depends(get_db)):
 # ── HEALTH CHECK ───────────────────────────────────────────────
 
 @app.get("/api/v1/health")
-def health_check():
-    return {"status": "operational", "version": "1.0.0", "release": "orbit"}
+def health_check(db: Session = Depends(get_db)):
+    has_admin = db.query(AdminUser).filter(AdminUser.role == AdminRole.SUPER_ADMIN).first() is not None
+    return {
+        "status": "operational", 
+        "version": "1.0.0", 
+        "release": "orbit",
+        "setup_required": not has_admin
+    }
 
 if __name__ == "__main__":
     import uvicorn
     # Configuration for Orbit V1 Deployment
     uvicorn.run(
         "backend.api.main:app", 
-        host="0.0.0.0", 
+        host="127.0.0.1", 
         port=8000, 
         reload=True,
         log_level="info"

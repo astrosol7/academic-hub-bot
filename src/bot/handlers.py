@@ -216,11 +216,17 @@ def register_handlers(
 
     def find_category_slug(label: str, allowed_actions: tuple[str, ...]) -> str | None:
         """Map a UI label (with or without icon) back to a category slug."""
+        normalized_label = label.strip().casefold()
         for action in allowed_actions:
             category = repository.categories.get(action)
             if category:
                 ui_label = f"{category.icon} {category.label}".strip() if category.icon else category.label
-                if category.label == label or ui_label == label:
+                if (
+                    category.label == label
+                    or ui_label == label
+                    or category.label.strip().casefold() == normalized_label
+                    or ui_label.strip().casefold() == normalized_label
+                ):
                     return action
         return None
 
@@ -228,27 +234,31 @@ def register_handlers(
 
     async def navigate(message: types.Message, state: FSMContext, action: str) -> None:
         """THE transition function. ALL navigation goes through here."""
-        session = await load_session(state)
+        try:
+            session = await load_session(state)
 
-        # Mutually exclusive cancellation (nav breaks delivery)
-        task_registry.cancel(session.user_id, "delivery")
-        if session.delivery_active:
-            await coordinator.cancel_active_delivery(state)
+            # Mutually exclusive cancellation (nav breaks delivery)
+            task_registry.cancel(session.user_id, "delivery")
+            if session.delivery_active:
+                await coordinator.cancel_active_delivery(state)
 
-        # Transition logic
-        updated = navigation.transition(session, action)
-        # Advance Execution Token
-        updated = updated.model_copy(update={"execution_id": updated.execution_id + 1})
-        # Validate State Integrity
-        updated = _validate_session(updated, repository)
-        
-        # Set FSM state
-        await state.set_state(_fsm_state_for(updated))
-        await save_session(state, updated)
+            # Transition logic
+            updated = navigation.transition(session, action)
+            # Advance Execution Token
+            updated = updated.model_copy(update={"execution_id": updated.execution_id + 1})
+            # Validate State Integrity
+            updated = _validate_session(updated, repository)
 
-        # Render
-        screen = navigation.render_screen(updated)
-        await renderer.render(message, state, screen)
+            # Set FSM state
+            await state.set_state(_fsm_state_for(updated))
+            await save_session(state, updated)
+
+            # Render
+            screen = navigation.render_screen(updated)
+            await renderer.render(message, state, screen)
+        except Exception as e:
+            log.exception("event=navigate_error action=%s detail=%s", action, e)
+            await message.answer(f"⚠️ Navigation error: {e}")
 
     @router.message(CommandStart())
     async def cmd_start(message: types.Message, state: FSMContext) -> None:
@@ -385,6 +395,58 @@ def register_handlers(
         await _track_presence(session.user_id)
         # v1: show latest questions (author filter will be added in API next)
         await cmd_top(message, state)
+
+    @router.message(Command("stop"))
+    async def cmd_stop(message: types.Message, state: FSMContext) -> None:
+        """Handle /stop command with confirmation prompt"""
+        session = await load_session(state)
+        await _track_presence(session.user_id)
+        
+        # Create confirmation keyboard
+        confirm_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="✅ Yes, Sign Out", callback_data="stop:confirm"),
+                    InlineKeyboardButton(text="❌ Cancel", callback_data="stop:cancel")
+                ]
+            ]
+        )
+        
+        await message.answer(
+            "🚪 <b>Sign Out Confirmation</b>\n\n"
+            "Are you sure you want to sign out?\n"
+            "• Your session will be cleared\n"
+            "• Any ongoing tasks will be cancelled\n"
+            "• You'll need to use /start to use the bot again",
+            parse_mode="HTML",
+            reply_markup=confirm_keyboard
+        )
+
+    @router.callback_query(lambda c: c.data.startswith("stop:"))
+    async def handle_stop_callback(callback: types.CallbackQuery, state: FSMContext) -> None:
+        """Handle stop command confirmation callbacks"""
+        action = callback.data.split(":")[1]
+        
+        if action == "confirm":
+            # Clear session and state
+            await state.clear()
+            task_registry.cancel(callback.from_user.id)
+            
+            await callback.message.edit_text(
+                "✅ <b>Signed Out Successfully</b>\n\n"
+                "Your session has been cleared.\n"
+                "Use /start to use the bot again.",
+                parse_mode="HTML"
+            )
+            
+        elif action == "cancel":
+            await callback.message.edit_text(
+                "❌ <b>Sign Out Cancelled</b>\n\n"
+                "Your session remains active.",
+                parse_mode="HTML"
+            )
+        
+        await callback.answer()
 
     @router.message(Command("answer"))
     async def cmd_answer(message: types.Message, state: FSMContext) -> None:
@@ -569,6 +631,7 @@ def register_handlers(
 
     @router.message()
     async def fast_router(message: types.Message, state: FSMContext) -> None:
+      try:
         if not message.text:
             return
 
@@ -633,7 +696,10 @@ def register_handlers(
             created = await _qa_create_question(session.user_id, title=title, body=body)
             await state.clear()
             if not created:
-                await message.answer("⚠️ Failed to post question (are you verified?). Try again later.")
+                await message.answer(
+                    "⚠️ Failed to post question.\n"
+                    "Make sure you are verified first (/start), then try again."
+                )
                 return
             qid = created.get("id")
             await message.answer(
@@ -721,7 +787,12 @@ def register_handlers(
             if session.section == "report_1":
                 # Normalize button text to ensure match even with icons
                 clean_text = text.lower()
-                cat_map = {"missing file": "Missing file", "wrong content": "Wrong content", "other": "Other"}
+                cat_map = {
+                    "missing file": "Missing file",
+                    "wrong content": "Wrong content",
+                    "unavailable": "Unavailable",
+                    "other": "Other",
+                }
                 matched_cat = None
                 for k, v in cat_map.items():
                     if k in clean_text:
@@ -782,7 +853,7 @@ def register_handlers(
                     if not matched_button:
                         # Check week buttons
                         if session.section == "week_list":
-                            if text.startswith("🗂 Week "):
+                            if text.startswith("🗂 Week ") or text.lower().startswith("week "):
                                 num = text.split(" ")[-1]
                                 await navigate(message, state, f"nav:week_category:{num}")
                                 matched_button = True
@@ -798,12 +869,12 @@ def register_handlers(
                 # 5. INTENT CLASSIFIER / FALLBACK (Algorithm Traffic Controller)
                 decision, n_score, s_score = classify_intent(text)
 
-                if decision == IntentDecision.SEARCH or decision == IntentDecision.UNKNOWN:
-                    # Reset strikes and enforce Universal Search 
+                if decision == IntentDecision.SEARCH:
+                    # Explicit search intent only; avoid hijacking browse flow.
                     updated = session.model_copy(update={"noise_count": 0})
                     await save_session(state, updated)
                     await handle_search_mode(message, state, text)
-                else: # IntentDecision.NOISE
+                else:
                     new_count = session.noise_count + 1
                     updated = session.model_copy(update={"noise_count": new_count})
                     await save_session(state, updated)
@@ -812,11 +883,15 @@ def register_handlers(
                         # Escalation: 3+ Strikes routes to Search Intro politely
                         updated = updated.model_copy(update={"noise_count": 0})
                         await save_session(state, updated)
-                        await navigate(message, state, "nav:search")
-                        await message.answer("💡 It seems you're having trouble. You are now in Search Mode. Please type academic keywords (like 'physics week 1').")
+                        await message.answer("💡 It seems you're having trouble. Please use the visible buttons or tap 🔍 Search first.")
                     else:
-                        # Soft Redirect
-                        await message.answer(f"💡 Unrecognized command: <code>{html.escape(text[:20])}</code>. Please use the Menu buttons or type academic keywords to search.", parse_mode="HTML")
+                        await message.answer(
+                            "💡 Please use the buttons on screen.\n"
+                            "If you want search, tap 🔍 Search first."
+                        )
+      except Exception as e:
+            log.exception("event=fast_router_error detail=%s", e)
+            await message.answer("⚠️ Internal error. Please try again.")
 
     # ── FEATURE HANDLERS ────────────────────────────────────────────
 
@@ -843,9 +918,21 @@ def register_handlers(
                 await renderer.render(message, state, navigation.render_screen(await load_session(state)))
 
     async def handle_delivery(message: types.Message, state: FSMContext, course_id: str, category_slug: str) -> None:
+        # Check if category actually exists and has potential content
+        course = repository.get_course(course_id)
+        if not course:
+            await message.answer("⚠️ Course not found.")
+            return
+            
+        category = repository.categories.get(category_slug)
+        if not category:
+            await message.answer("⚠️ Category not found.")
+            return
+            
         files = delivery.bundle_for_course_category(course_id, category_slug)
         if not files:
-            await message.answer(EMPTY_MESSAGE)
+            # Only show "nothing here" if this category should have content
+            await message.answer(f"📭 No {category.label.lower()} available for {course.title} yet.\n\nCheck back later or choose another section.")
             return
             
         course = repository.get_course(course_id)
@@ -863,9 +950,20 @@ def register_handlers(
         task_registry.register(session.user_id, "delivery", asyncio.create_task(coro))
 
     async def handle_delivery_week(message: types.Message, state: FSMContext, course_id: str, week: int, category_slug: str) -> None:
+        # Check if category actually exists
+        course = repository.get_course(course_id)
+        if not course:
+            await message.answer("⚠️ Course not found.")
+            return
+            
+        category = repository.categories.get(category_slug)
+        if not category:
+            await message.answer("⚠️ Category not found.")
+            return
+            
         files = delivery.bundle_for_week_category(course_id, week, category_slug)
         if not files:
-            await message.answer(EMPTY_MESSAGE)
+            await message.answer(f"📭 No {category.label.lower()} available for {course.title} - Week {week} yet.\n\nCheck back later or choose another section.")
             return
             
         course = repository.get_course(course_id)
@@ -929,27 +1027,24 @@ def register_handlers(
             search_result = await search.search(text, session.user_id, session.search_target or "resources")
             
             if search_result["status"] == "error":
-                await message.answer(
-                    f"⚠️ <b>Search Error</b>\n\n{search_result['message']}",
-                    parse_mode="HTML"
-                )
-                return
-            
-            search_results = search_result.get("results", [])
-            suggestions = search_result.get("suggestions", [])
-            engine_used = search_result.get("engine", "filesystem")
-            
-            if search_results:
-                log_event(
-                    log, logging.INFO, LogCategory.SEARCH_DB_HIT,
-                    "Search resolved via enhanced service.",
-                    user_id=session.user_id, query=text,
-                    engine=engine_used, result_count=len(search_results)
-                )
+                log.warning(f"Search service error: {search_result.get('message', 'Unknown error')}")
+                # Don't return immediately, try fallback
+            else:
+                search_results = search_result.get("results", [])
+                suggestions = search_result.get("suggestions", [])
+                engine_used = search_result.get("engine", "filesystem")
                 
-                # Display search results with enhanced formatting
-                await _display_search_results(message, search_results, text)
-                return
+                if search_results:
+                    log_event(
+                        log, logging.INFO, LogCategory.SEARCH_DB_HIT,
+                        "Search resolved via enhanced service.",
+                        user_id=session.user_id, query=text,
+                        engine=engine_used, result_count=len(search_results)
+                    )
+                    
+                    # Display search results with enhanced formatting
+                    await _display_search_results(message, search_results, text)
+                    return
                 
         except Exception as e:
             log.error(f"Enhanced search failed, falling back: {e}")
@@ -1005,7 +1100,7 @@ def register_handlers(
         except Exception:
             pass  # Telemetry failure shouldn't affect user experience
 
-    async def _display_search_results(message: types.Message, results: List, query: str) -> None:
+    async def _display_search_results(message: types.Message, results: list, query: str) -> None:
         """Display search results with enhanced formatting"""
         if not results:
             return
@@ -1068,7 +1163,7 @@ def register_handlers(
             parse_mode="HTML"
         )
     
-    async def _handle_no_results(message: types.Message, safe_msg: str, suggestions: List[str]) -> None:
+    async def _handle_no_results(message: types.Message, safe_msg: str, suggestions: list[str]) -> None:
         """Handle no search results with enhanced suggestions"""
         response_text = f"🔍 <b>Search Results</b>\n\n{safe_msg}"
         

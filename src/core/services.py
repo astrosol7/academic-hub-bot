@@ -68,6 +68,8 @@ class ButtonLabels:
     by_week = "🗂 By Week"
     more_files = "📂 More Files"
     exit_search = "❌ Exit Search"
+    back = "⬅️ Back"
+    main_menu = "🏠 Main Menu"
 
 
 class DeliveryService:
@@ -191,6 +193,15 @@ class NavigationService:
                     [labels.back, labels.main_menu]
                 ]
         
+        elif session.level == "report":
+            if session.section == "report_1":
+                # Report category buttons
+                keyboard = [
+                    ["🚫 Missing file", "❌ Wrong content"],
+                    ["⛔ Unavailable", "🐛 Other"],
+                    [labels.back, labels.main_menu]
+                ]
+        
         elif session.level == "resources":
             # Dynamic quarter buttons
             quarter_buttons = []
@@ -201,14 +212,35 @@ class NavigationService:
                 keyboard = [quarter_buttons[i:i+2] for i in range(0, len(quarter_buttons), 2)]
                 keyboard.append([labels.back, labels.main_menu])
         
-        elif session.level == "quarter" and session.course_id:
-            course = self.repository.get_course(session.course_id)
-            if course:
-                keyboard = [
-                    [labels.overview, labels.by_week],
-                    [labels.more_files],
-                    [labels.back, labels.main_menu]
-                ]
+        elif session.level == "quarter":
+            if not session.course_id:
+                # Dynamic course buttons
+                course_buttons = []
+                if session.quarter is not None:
+                    courses = self.repository.list_courses(int(session.quarter))
+                    for c in courses:
+                        course_buttons.append(c.title)
+                
+                # Split into rows of 2 for better UX, but fall back to 1 if titles are long
+                keyboard = []
+                for i in range(0, len(course_buttons), 2):
+                    row = course_buttons[i:i+2]
+                    # If any title in row is very long, use single column
+                    if any(len(btn) > 20 for btn in row):
+                        keyboard.append([row[0]])
+                        if len(row) > 1:
+                            keyboard.append([row[1]])
+                    else:
+                        keyboard.append(row)
+                keyboard.append([labels.back, labels.main_menu])
+            else:
+                course = self.repository.get_course(session.course_id)
+                if course:
+                    keyboard = [
+                        [labels.overview, labels.by_week],
+                        [labels.more_files],
+                        [labels.back, labels.main_menu]
+                    ]
         
         elif session.level == "course" and session.course_id:
             course = self.repository.get_course(session.course_id)
@@ -463,8 +495,7 @@ class NavigationService:
             q = session.quarter or "?"
             courses = self.repository.list_courses(int(q)) if session.quarter else []
             if courses:
-                listing = "\n".join(f"  • {c.title}" for c in courses)
-                return f"\U0001f4d6 <b>Quarter {q} — Courses</b>\n\n{listing}\n\nTap a course name below."
+                return f"\U0001f4d6 <b>Quarter {q} — Courses</b>\n\nTap a course name below."
             return f"\U0001f4d6 <b>Quarter {q}</b>\n\nNo courses found for this quarter."
         if session.level == "course" and session.course_id:
             course = self.repository.get_course(session.course_id)
@@ -600,7 +631,7 @@ class SearchService:
                         "description": getattr(resource, 'description', ''),
                         "course_id": course.id,
                         "course_title": course.title,
-                        "category": getattr(resource, 'category', 'unknown'),
+                        "category": getattr(resource, 'category_slug', 'unknown'),
                         "score": 1.0,  # Exact match gets highest score
                         "match_type": "exact_title"
                     })
@@ -608,65 +639,86 @@ class SearchService:
         return results
     
     def _search_fuzzy(self, query: str) -> List[Dict]:
-        """Fuzzy search using simple string similarity"""
+        """Fuzzy search using simple string similarity against both course and resource"""
         results = []
         query_words = query.lower().split()
         
         for course in self.repository.list_all_courses():
             course_resources = self.repository.get_course_resources(course.id)
+            course_title_lower = course.title.lower()
+            
             for resource in course_resources:
                 title_lower = resource.title.lower()
+                cat_slug = getattr(resource, 'category_slug', '').lower()
                 
-                # Simple fuzzy matching - count word matches
-                matches = sum(1 for word in query_words if word in title_lower)
-                if matches >= 1:  # At least one word matches
+                # Combine search space to catch "calculus exams" -> "Calculus I" + "Quiz 01" + "exams"
+                searchable_text = f"{course_title_lower} {title_lower} {cat_slug}"
+                
+                matches = sum(1 for word in query_words if word in searchable_text)
+                if matches >= 1: 
                     score = matches / len(query_words)
+                    
+                    # Boost score if they match perfectly across all terms
+                    if matches >= len(query_words):
+                        score *= 1.2
+                        
                     results.append({
                         "id": resource.id,
                         "title": resource.title,
                         "description": getattr(resource, 'description', ''),
                         "course_id": course.id,
                         "course_title": course.title,
-                        "category": getattr(resource, 'category', 'unknown'),
-                        "score": score * 0.8,  # Fuzzy match gets lower score
+                        "category": cat_slug,
+                        "score": score * 0.8,
                         "match_type": "fuzzy"
                     })
         
         return sorted(results, key=lambda x: x['score'], reverse=True)
     
     def _search_by_category(self, query: str) -> List[Dict]:
-        """Search by category keywords"""
+        """Search by category keywords and overlapping course topics"""
         results = []
         query_lower = query.lower()
+        query_words = query_lower.split()
         
-        # Category keyword mapping
+        # Exact mappings to Postgres category slugs
         category_keywords = {
-            'notes': ['notes', 'note', 'lecture notes'],
-            'slides': ['slides', 'presentation', 'ppt'],
-            'video': ['video', 'lecture', 'recording'],
-            'pdf': ['pdf', 'document'],
-            'assignment': ['assignment', 'homework', 'task'],
-            'exam': ['exam', 'test', 'quiz']
+            'lecture_notes': ['notes', 'note', 'lecture notes', 'slides', 'presentation', 'ppt'],
+            'readings': ['pdf', 'document', 'reading', 'read', 'book'],
+            'assignments': ['assignment', 'homework', 'task', 'project'],
+            'exams': ['exam', 'test', 'quiz', 'exams']
         }
         
         matched_categories = []
         for category, keywords in category_keywords.items():
-            if any(keyword in query_lower for keyword in keywords):
+            if any(keyword in query_words for keyword in keywords):
                 matched_categories.append(category)
         
         if matched_categories:
             for course in self.repository.list_all_courses():
                 course_resources = self.repository.get_course_resources(course.id)
+                course_title_lower = course.title.lower()
+                
+                # Calculate if course name was explicitly mentioned
+                course_match = any(word in course_title_lower for word in query_words if word not in ['1', '2', '3', 'i', 'ii', 'iii'])
+                
                 for resource in course_resources:
-                    if getattr(resource, 'category', '').lower() in matched_categories:
+                    cat_slug = getattr(resource, 'category_slug', '').lower()
+                    if cat_slug in matched_categories:
+                        
+                        # Only return results if the user specifically asked for this course OR it's a very broad search
+                        score = 0.6
+                        if course_match:
+                            score = 1.0  # High score for matched course + matched category!
+                            
                         results.append({
                             "id": resource.id,
                             "title": resource.title,
                             "description": getattr(resource, 'description', ''),
                             "course_id": course.id,
                             "course_title": course.title,
-                            "category": getattr(resource, 'category', 'unknown'),
-                            "score": 0.6,  # Category match gets moderate score
+                            "category": cat_slug,
+                            "score": score,
                             "match_type": "category"
                         })
         

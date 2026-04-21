@@ -39,6 +39,10 @@ class TelegramSession(BaseModel):
     chat_id: int = 0
     execution_id: int = 1
 
+    # UI State
+    screen_message_id: Optional[int] = None
+    transient_messages: list[int] = Field(default_factory=list)
+
     # Navigation state
     level: str = "home"
     section: str = "home"

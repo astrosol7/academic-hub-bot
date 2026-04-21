@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.api.database import get_db
 from backend.api.models import Institution, TelegramLink, Question, Answer, Vote, QAStatus
+from backend.api.utils import resolve_limit
 
 
 router = APIRouter()
@@ -171,11 +172,12 @@ def list_questions(
     if not inst:
         raise HTTPException(status_code=404, detail="Institution not found")
 
+    limit = resolve_limit(limit, role="public")
     qs = (
         db.query(Question)
         .filter(Question.institution_id == inst.id)
         .order_by(desc(Question.created_at))
-        .limit(min(limit, 50))
+        .limit(limit)
         .all()
     )
     out: list[QuestionItem] = []
@@ -249,7 +251,10 @@ def create_answer(
 def list_answers(question_id: str, db: Session = Depends(get_db), x_orbit_bot_key: str | None = Header(default=None)):
     _require_bot_key(x_orbit_bot_key)
     _validate_uuid(question_id, "question_id")
-    answers = db.query(Answer).filter(Answer.question_id == question_id).order_by(desc(Answer.is_accepted), desc(Answer.created_at)).limit(50).all()
+    
+    # Answers don't have a limit param in the current signature, but we should cap them anyway
+    limit = resolve_limit(50, role="public")
+    answers = db.query(Answer).filter(Answer.question_id == question_id).order_by(desc(Answer.is_accepted), desc(Answer.created_at)).limit(limit).all()
     out: list[AnswerItem] = []
     for a in answers:
         score = db.query(func.coalesce(func.sum(Vote.value), 0)).filter(Vote.answer_id == a.id).scalar() or 0
@@ -340,6 +345,8 @@ def search_questions(
 
     # Blend TS rank + vote score
     tsq = func.plainto_tsquery("english", qtext)
+    
+    limit = resolve_limit(limit, role="public")
     rows = (
         db.query(
             Question.id,
@@ -352,11 +359,10 @@ def search_questions(
         .filter(Question.search_text.op("@@")(tsq))
         .group_by(Question.id, Question.title, Question.search_text)
         .order_by(desc(func.ts_rank_cd(Question.search_text, tsq)), desc(func.coalesce(func.sum(Vote.value), 0)))
-        .limit(min(limit, 20))
+        .limit(limit)
         .all()
     )
     return [
         QASearchHit(question_id=str(r[0]), title=r[1], score=float(r[2] or 0.0) + float(r[3] or 0.0) * 0.1)
         for r in rows
     ]
-

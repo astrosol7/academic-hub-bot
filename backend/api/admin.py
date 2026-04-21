@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.api.database import get_db
 from backend.api.auth import get_current_admin
+from backend.api.utils import resolve_limit
 from backend.api.models import (
     AdminUser,
     AdminRole,
@@ -135,7 +136,9 @@ def list_incidents(
     q = db.query(ReportSubmission)
     if status:
         q = q.filter(ReportSubmission.status == status)
-    items = q.order_by(desc(ReportSubmission.created_at)).offset(offset).limit(min(limit, 200)).all()
+    
+    limit = resolve_limit(limit, role="admin")
+    items = q.order_by(desc(ReportSubmission.created_at)).offset(offset).limit(limit).all()
     return [
         IncidentItem(
             id=str(i.id),
@@ -209,7 +212,9 @@ def list_students(
             query = query.filter(
                 (Student.id.ilike(f"%{needle}%")) | (Student.full_name.ilike(f"%{needle}%"))
             )
-    students = query.order_by(Student.id.asc()).offset(offset).limit(min(limit, 200)).all()
+    
+    limit = resolve_limit(limit, role="admin")
+    students = query.order_by(Student.id.asc()).offset(offset).limit(limit).all()
 
     # fetch links for these students
     ids = [s.id for s in students]
@@ -346,7 +351,7 @@ def list_quarantine(
         .filter(SyncError.status == status)
         .order_by(desc(SyncError.detected_at))
         .offset(offset)
-        .limit(min(limit, 200))
+        .limit(resolve_limit(limit, role="admin"))
         .all()
     )
     return [
@@ -405,7 +410,9 @@ def list_resources(
         q = q.filter(Resource.course_id == course_id)
     if status:
         q = q.filter(Resource.status == status)
-    items = q.order_by(desc(Resource.created_at)).offset(offset).limit(min(limit, 200)).all()
+    
+    limit = resolve_limit(limit, role="admin")
+    items = q.order_by(desc(Resource.created_at)).offset(offset).limit(limit).all()
     return [
         ResourceRow(
             id=str(r.id),
@@ -429,12 +436,15 @@ class AdminRow(BaseModel):
 
 @router.get("/api/v1/admin/admins", response_model=list[AdminRow])
 def list_admins(
+    limit: int = 50,
     db: Session = Depends(get_db),
     user: AdminUser = Depends(get_current_admin),
 ):
     if user.role != AdminRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super admin required")
-    admins = db.query(AdminUser).order_by(AdminUser.created_at.desc()).limit(200).all()
+    
+    limit = resolve_limit(limit, role="admin")
+    admins = db.query(AdminUser).order_by(AdminUser.created_at.desc()).limit(limit).all()
     return [
         AdminRow(
             id=str(a.id),
@@ -494,4 +504,3 @@ def create_admin(
         created_at=admin.created_at,
         last_login=admin.last_login,
     )
-

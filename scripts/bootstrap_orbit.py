@@ -45,26 +45,24 @@ def bootstrap():
                 metadata_blob={
                     "quarter_labels": {
                         1: "Quarter 1",
-                        2: "Quarter 2",
-                        3: "Quarter 3",
-                        4: "Quarter 4"
+                        2: "Quarter 2"
                     }
                 }
             )
             db.add(institution)
             db.flush()
-            print(f"✅ Created Institution: {inst_slug}")
+            print(f"Created Institution: {inst_slug}")
         
         # 3. Load Meta Cache
         meta_cache_path = Path("resources/institutions/sit/.meta_cache.json")
         if not meta_cache_path.exists():
-            print(f"❌ Meta cache not found at {meta_cache_path}")
+            print(f"Meta cache not found at {meta_cache_path}")
             return
             
         with open(meta_cache_path, 'r', encoding='utf-8') as f:
             meta_data = json.load(f)
         
-        print(f"📦 Loaded {len(meta_data)} resource metadata entries.")
+        print(f"Loaded {len(meta_data)} resource metadata entries.")
         
         # 4. Process Courses and Resources
         courses_map = {} # title -> Course
@@ -95,7 +93,16 @@ def bootstrap():
         
         for path, res_data in meta_data.items():
             course_title = res_data.get('course_title', 'General')
+            
+            # [STABILIZATION] Purge Unsorted Materials filter
+            if "Unsorted Materials" in course_title:
+                continue
+                
             quarter = get_quarter_from_path(path)
+            
+            # [STABILIZATION] Quarter cap filter
+            if quarter > 2:
+                continue
             
             course_key = f"{course_title}_{quarter}"
             if course_key not in courses_map:

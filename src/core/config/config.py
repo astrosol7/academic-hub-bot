@@ -48,7 +48,10 @@ class AppConfig:
     bot: BotConfig = field(default_factory=BotConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     debug: bool = False
-    log_level: str = "INFO"
+    # API Limits
+    api_default_limit: int = 20
+    api_max_limit_public: int = 100
+    api_max_limit_admin: int = 1000
 
     # Backend integration (bot → API bridge)
     backend_base_url: str = "http://127.0.0.1:8000"
@@ -105,6 +108,9 @@ def load_config(require_token: bool = True) -> AppConfig:
         database=database_config,
         debug=os.getenv("DEBUG", "false").lower() == "true",
         log_level=os.getenv("LOG_LEVEL", "INFO"),
+        api_default_limit=int(os.getenv("API_DEFAULT_LIMIT", "20")),
+        api_max_limit_public=int(os.getenv("API_MAX_LIMIT_PUBLIC", "100")),
+        api_max_limit_admin=int(os.getenv("API_MAX_LIMIT_ADMIN", "1000")),
         backend_base_url=os.getenv("ORBIT_BACKEND_BASE_URL", "http://127.0.0.1:8000"),
         orbit_bot_api_key=os.getenv("ORBIT_BOT_API_KEY", ""),
         institution_slug=os.getenv("INSTITUTION_SLUG", "sit"),

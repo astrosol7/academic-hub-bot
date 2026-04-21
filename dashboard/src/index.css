@@ -11,12 +11,13 @@
 
 :root {
   /* Night Mode (Default) */
-  --orbit-bg: #05070a;
-  --orbit-fg: #e2e8f0;
-  --orbit-surface: rgba(16, 21, 28, 0.7);
-  --orbit-border: #1e293b;
-  --orbit-primary: #3b82f6;
-  --orbit-accent: #10b981;
+  --orbit-bg: #202123;
+  --orbit-fg: #ececf1;
+  --orbit-surface: rgba(52, 53, 65, 0.75);
+  --orbit-border: #3f4047;
+  --orbit-primary: #10a37f;
+  --orbit-accent: #19c37d;
+  --orbit-primary-rgb: 16, 163, 127;
   
   /* Density: Spacious (Default) */
   --spacing-scale: 1;
@@ -29,21 +30,55 @@
   --orbit-border: #e2e8f0;
   --orbit-primary: #2563eb;
   --orbit-accent: #059669;
+  --orbit-primary-rgb: 37, 99, 235;
 }
 
 [data-density='dense'] {
   --spacing-scale: 0.75;
 }
 
+[data-color-preset='violet'] {
+  --orbit-primary: #8b5cf6;
+  --orbit-accent: #c084fc;
+  --orbit-primary-rgb: 139, 92, 246;
+}
+
+[data-color-preset='cyan'] {
+  --orbit-primary: #06b6d4;
+  --orbit-accent: #22d3ee;
+  --orbit-primary-rgb: 6, 182, 212;
+}
+
+[data-color-preset='emerald'] {
+  --orbit-primary: #10b981;
+  --orbit-accent: #34d399;
+  --orbit-primary-rgb: 16, 185, 129;
+}
+
 body {
   background-color: var(--orbit-bg);
   color: var(--orbit-fg);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   margin: 0;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+#root {
+  height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 .glass-panel {
@@ -54,8 +89,46 @@ body {
   transition: all 0.3s ease;
 }
 
+.sidebar-active-indicator {
+  position: absolute;
+  left: 0;
+  width: 4px;
+  height: 24px;
+  background: var(--orbit-primary);
+  border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 10px var(--orbit-primary);
+}
+
+.sidebar-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  background: var(--orbit-primary);
+  color: white;
+  box-shadow: 0 0 12px rgba(var(--orbit-primary-rgb), 0.4);
+}
+
+.sidebar-badge-warning {
+  background: #f59e0b;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+
+.sidebar-item-hover {
+  @apply transition-all duration-200;
+}
+
+.sidebar-item-hover:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
 .orbit-glow {
-  box-shadow: 0 0 20px -5px var(--orbit-primary);
+  box-shadow: none;
 }
 
 .density-aware {
@@ -66,22 +139,63 @@ body {
   gap: calc(1.5rem * var(--spacing-scale));
 }
 
-@keyframes pulse-glow {
-  0% { opacity: 0.1; }
-  50% { opacity: 0.3; }
-  100% { opacity: 0.1; }
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
 }
 
-.nebula-bg {
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  background-color: rgba(59, 130, 246, 0.28);
+}
+
+/* Voyager / Student App Tokens */
+:root {
+  --voyager-bg: #0a0a0f;
+  --voyager-surface: #1a1a2e;
+  --voyager-primary: #00d4ff;
+  --voyager-accent: #ff6b35;
+}
+
+.nebula {
   position: fixed;
   top: 0;
-  right: 0;
-  width: 600px;
-  height: 600px;
-  background: radial-gradient(circle, var(--orbit-primary) 0%, transparent 70%);
-  filter: blur(100px);
-  opacity: 0.15;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: 
+    radial-gradient(circle at 20% 20%, rgba(0, 212, 255, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255, 107, 53, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 60%, rgba(0, 255, 136, 0.05) 0%, transparent 50%);
   pointer-events: none;
-  animation: pulse-glow 8s infinite ease-in-out;
   z-index: -1;
+}
+
+.glass-panel {
+  background: rgba(26, 26, 46, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.orbit-glow {
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.3); }
+  50% { box-shadow: 0 0 30px rgba(0, 212, 255, 0.5); }
+}
+
+.safe-area-spacing {
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
