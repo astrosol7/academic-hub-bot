@@ -5,7 +5,7 @@ description = "SIT Academic Hub Bot & Dashboard"
 authors = [{ name = "Orbit Team" }]
 dependencies = [
     "fastapi",
-    "uvicorn",
+    "uvicorn[standard]",
     "sqlalchemy",
     "psycopg2-binary",
     "pydantic",
@@ -15,8 +15,13 @@ dependencies = [
     "python-dotenv",
     "aiogram",
     "aiofiles",
-    "httpx"
+    "httpx",
+    "alembic",
+    "psutil",
+    "click",
+    "rich",
+    "typer"
 ]
 
 [project.scripts]
-app = "backend.api.main:app"
+app = "api.index:app"
