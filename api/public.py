@@ -8,15 +8,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 
-from backend.api.database_postgresql import get_db
-from backend.api.models import (
+from api.database_postgresql import get_db
+from api.models import (
     Course,
     Institution,
     Resource,
     ResourceCategory,
     ResourceStatus,
 )
-from backend.api.utils import resolve_limit
+from api.utils import resolve_limit
 
 
 router = APIRouter()

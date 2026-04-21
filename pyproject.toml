@@ -1,0 +1,22 @@
+[project]
+name = "academic-hub-bot"
+version = "0.1.0"
+description = "SIT Academic Hub Bot & Dashboard"
+authors = [{ name = "Orbit Team" }]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "pydantic",
+    "python-multipart",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "python-dotenv",
+    "aiogram",
+    "aiofiles",
+    "httpx"
+]
+
+[project.scripts]
+app = "backend.api.main:app"

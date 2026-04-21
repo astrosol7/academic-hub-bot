@@ -14,20 +14,20 @@ from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session, joinedload
 
-from backend.api.database_postgresql import get_db, engine, init_database
-from backend.api.models import (
+from api.database_postgresql import get_db, engine, init_database
+from api.models import (
     Base,
     Resource, ResourceStatus, Course, Institution, ResourceCategory,
     AdminUser, AdminRole,
     IngestionLog, UsageSignal, ReportSubmission, ReportContextType, ReportStatus
 )
-from backend.api.auth import router as auth_router
-from backend.api.bot import router as bot_router
-from backend.api.admin import router as admin_router
-from backend.api.qa import router as qa_router
-from backend.api.public import router as public_router
-from backend.api.utils import resolve_limit
-from backend.api.security import SimpleRateLimitMiddleware, RateLimitRule
+from api.auth import router as auth_router
+from api.bot import router as bot_router
+from api.admin import router as admin_router
+from api.qa import router as qa_router
+from api.public import router as public_router
+from api.utils import resolve_limit
+from api.security import SimpleRateLimitMiddleware, RateLimitRule
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("api")
@@ -419,7 +419,7 @@ if __name__ == "__main__":
     import uvicorn
     # Configuration for Orbit V1 Deployment
     uvicorn.run(
-        "backend.api.main:app", 
+        "api.index:app", 
         host="127.0.0.1", 
         port=8000, 
         reload=True,

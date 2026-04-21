@@ -8,8 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from backend.api.database import get_db
-from backend.api.models import Institution, Student, TelegramLink
+from api.database import get_db
+from api.models import Institution, Student, TelegramLink
 
 
 router = APIRouter()

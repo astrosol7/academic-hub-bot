@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.api.models import AdminUser, AdminRole, Student
-from backend.api.database import get_db
+from api.models import AdminUser, AdminRole, Student
+from api.database import get_db
 import logging
 
 SECRET_KEY = os.getenv("JWT_SECRET", "super_secret_dev_key_never_use_in_prod")

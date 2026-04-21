@@ -340,7 +340,7 @@ class DatabaseRecovery:
     async def reconnect_database():
         """Attempt to reconnect to database"""
         try:
-            from backend.api.database_sqlite import engine
+            from api.database_sqlite import engine
             # Test connection
             with engine.connect() as conn:
                 conn.execute("SELECT 1")
@@ -354,7 +354,7 @@ class DatabaseRecovery:
     async def repair_database():
         """Attempt to repair database corruption"""
         try:
-            from backend.api.database_sqlite import engine
+            from api.database_sqlite import engine
             with engine.connect() as conn:
                 conn.execute("PRAGMA integrity_check")
                 conn.execute("VACUUM")
@@ -385,7 +385,7 @@ def initialize_health_checks():
     # Database health check
     def check_database():
         try:
-            from backend.api.database_sqlite import engine
+            from api.database_sqlite import engine
             with engine.connect() as conn:
                 conn.execute("SELECT 1")
             return True

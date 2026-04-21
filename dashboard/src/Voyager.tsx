@@ -1,15 +1,14 @@
-import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   Search, BookOpen, GraduationCap, User, Globe, 
-  ChevronRight, ArrowLeft, Loader2, ShieldCheck,
-  LayoutGrid, Clock, Star, Sparkles, LogIn, Download,
-  TrendingUp, Award, Zap, Eye, Heart, Share2
+  ChevronRight, ArrowLeft, Loader2,
+  LayoutGrid, Sparkles, Download,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api, type Institution, type Course, type SearchResult } from './api';
-import classNames from 'classnames';
 
-export default function StudentVoyager({ studentName, isAuthenticated }: { studentName: string; isAuthenticated: boolean }) {
+export default function StudentVoyager({ studentName }: { studentName: string; isAuthenticated: boolean }) {
   const [view, setView] = useState<'home' | 'browse' | 'search' | 'profile'>('home');
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [selectedSchool, setSelectedSchool] = useState<Institution | null>(null);
@@ -17,20 +16,9 @@ export default function StudentVoyager({ studentName, isAuthenticated }: { stude
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [downloadHistory, setDownloadHistory] = useState<any[]>([]);
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const searchTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
-    const cachedFavorites = localStorage.getItem('voyager_favorites');
-    const cachedRecent = localStorage.getItem('voyager_recent_searches');
-    const cachedHistory = localStorage.getItem('voyager_download_history');
-    
-    if (cachedFavorites) setFavorites(JSON.parse(cachedFavorites));
-    if (cachedRecent) setRecentSearches(JSON.parse(cachedRecent));
-    if (cachedHistory) setDownloadHistory(JSON.parse(cachedHistory));
-    
     api.getInstitutions().then(setInstitutions).catch(console.error);
   }, []);
 
@@ -51,44 +39,12 @@ export default function StudentVoyager({ studentName, isAuthenticated }: { stude
       try {
         const res = await api.search(q);
         setResults(res.results);
-        
-        setRecentSearches(prev => {
-          const updated = [q, ...prev.filter(item => item !== q)].slice(0, 5);
-          localStorage.setItem('voyager_recent_searches', JSON.stringify(updated));
-          return updated;
-        });
       } catch (e) {
         console.error(e);
       } finally {
         setLoading(false);
       }
     }, 300);
-  }, []);
-
-  const toggleFavorite = useCallback((resourceId: string) => {
-    setFavorites(prev => {
-      const updated = prev.includes(resourceId) 
-        ? prev.filter(id => id !== resourceId)
-        : [...prev, resourceId];
-      localStorage.setItem('voyager_favorites', JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
-
-  const addToDownloadHistory = useCallback((resource: any) => {
-    const entry = {
-      id: Date.now(),
-      resource_id: resource.resource_id,
-      title: resource.title,
-      timestamp: new Date().toISOString(),
-      course_id: resource.course_id
-    };
-    
-    setDownloadHistory(prev => {
-      const updated = [entry, ...prev].slice(0, 20);
-      localStorage.setItem('voyager_download_history', JSON.stringify(updated));
-      return updated;
-    });
   }, []);
 
   const handleSelectSchool = async (inst: Institution) => {
@@ -170,11 +126,6 @@ export default function StudentVoyager({ studentName, isAuthenticated }: { stude
                 loading={loading} 
                 query={searchQuery} 
                 onBack={() => setView('home')}
-                favorites={favorites}
-                toggleFavorite={toggleFavorite}
-                addToDownloadHistory={addToDownloadHistory}
-                recentSearches={recentSearches}
-                onSearch={handleSearch}
               />
             )}
 
@@ -183,7 +134,7 @@ export default function StudentVoyager({ studentName, isAuthenticated }: { stude
             )}
 
             {view === 'profile' && (
-              <ProfileScreen studentName={studentName} isAuthenticated={isAuthenticated} onBack={() => setView('home')} />
+              <ProfileScreen studentName={studentName} onBack={() => setView('home')} />
             )}
           </motion.div>
         </AnimatePresence>
@@ -219,7 +170,7 @@ function HomeScreen({ onSelectSchool, institutions, studentName }: any) {
        <div className="space-y-4">
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] px-1">Select Institution</h3>
           <div className="grid grid-cols-1 gap-4">
-             {institutions.map((inst: any, idx: number) => (
+             {institutions.map((inst: any) => (
                 <motion.button 
                   key={inst.id} 
                   whileTap={{ scale: 0.98 }}
@@ -244,7 +195,7 @@ function HomeScreen({ onSelectSchool, institutions, studentName }: any) {
   );
 }
 
-function SearchScreen({ results, loading, query, onBack, favorites, toggleFavorite, addToDownloadHistory, recentSearches, onSearch }: any) {
+function SearchScreen({ results, loading, query, onBack }: any) {
   return (
     <div className="space-y-8">
        <div className="flex items-center gap-3">
@@ -264,7 +215,7 @@ function SearchScreen({ results, loading, query, onBack, favorites, toggleFavori
           </div>
        ) : (
           <div className="space-y-4">
-             {results.map((res: any, i: number) => (
+             {results.map((res: any) => (
                 <div key={res.resource_id} className="p-5 glass-panel rounded-3xl border-orbit-border hover:border-orbit-primary/30 transition-all group overflow-hidden relative">
                    <div className="flex items-start justify-between mb-4">
                       <div className="flex-1">
@@ -299,7 +250,7 @@ function BrowseScreen({ school, courses, loading, onBack }: any) {
           <div className="flex justify-center py-20"><Loader2 className="w-10 h-10 animate-spin text-orbit-primary" /></div>
        ) : (
           <div className="grid grid-cols-1 gap-4">
-             {courses.map((c: any, i: number) => (
+             {courses.map((c: any) => (
                 <div key={c.id} className="p-6 glass-panel rounded-3xl border-orbit-border flex items-center justify-between group hover:border-orbit-primary/20">
                    <div className="flex-1">
                       <div className="text-[10px] font-black text-slate-500 mb-2 uppercase tracking-widest">{c.id}</div>
@@ -313,7 +264,7 @@ function BrowseScreen({ school, courses, loading, onBack }: any) {
   );
 }
 
-function ProfileScreen({ studentName, isAuthenticated, onBack }: any) {
+function ProfileScreen({ studentName, onBack }: any) {
   return (
     <div className="space-y-10">
        <div className="flex items-center gap-3">
