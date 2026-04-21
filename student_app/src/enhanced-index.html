@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Orbit Voyager - Modern Student Portal for Academic Resources" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  
+  <!-- Preload critical resources -->
+  <link rel="preload" href="/src/modern-styles.css" as="style" />
+  <link rel="preload" href="/src/interactive-features.js" as="script" />
+  <link rel="preload" href="/favicon.svg" as="image" type="image/svg+xml" />
+  
+  <!-- Progressive enhancement -->
+  <script>
+    // Feature detection
+    window.features = {
+      intersectionObserver: 'IntersectionObserver' in window,
+      resizeObserver: 'ResizeObserver' in window,
+      webp: document.createElement('canvas').toDataURL('image/webp').indexOf('data:image/webp') === 0,
+      serviceWorker: 'serviceWorker' in navigator,
+      notifications: 'Notification' in window,
+      vibration: 'vibrate' in navigator
+    };
+    
+    // Add feature classes to body
+    Object.entries(window.features).forEach(([feature, supported]) => {
+      document.body.classList.toggle(`supports-${feature}`, supported);
+    });
+  </script>
+  
+  <!-- Critical CSS -->
+  <style>
+    /* Critical above-the-fold styles */
+    body { 
+      margin: 0; 
+      padding: 0; 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0f;
+      color: #e0e0f0;
+      line-height: 1.6;
+    }
+    
+    #root { 
+      display: none; 
+    }
+    
+    .loading-skeleton {
+      background: linear-gradient(90deg, #1a1a2e 25%, #2d2d4a 50%, #1a1a2e 75%);
+      background-size: 200% 100%;
+      animation: loading 1.5s infinite;
+      border-radius: 0.5rem;
+    }
+    
+    @keyframes loading {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    
+    /* Safe area support */
+    .safe-area-padding {
+      padding-top: env(safe-area-inset-top);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  </style>
+  
+  <title>Orbit Voyager - Student Portal</title>
+</head>
+<body class="safe-area-padding">
+  <!-- Loading State -->
+  <div id="initial-loading" class="loading-skeleton" style="
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    background: #0a0a0f;
+  ">
+    <div style="text-align: center;">
+      <div style="
+        width: 60px;
+        height: 60px;
+        border: 3px solid #00d4ff;
+        border-top: 3px solid transparent;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 1rem;
+      "></div>
+      <div style="color: #00d4ff; font-weight: 600;">Initializing Orbit Voyager...</div>
+    </div>
+  </div>
+
+  <!-- Main App Container -->
+  <div id="app" style="display: none;">
+    <!-- Cosmic Background -->
+    <div class="cosmic-background"></div>
+    
+    <!-- Header -->
+    <header class="header" role="banner">
+      <div class="nav-container">
+        <div class="logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7v10c0 1.1.9 2 2h16c1.1 0 2-.9 2-2V9c0-1.1-.9-2-2-2H2z"/>
+            <polyline points="2,17 13,17 22,17"/>
+            <polyline points="2,12 13,12 22,12"/>
+            <polyline points="7,7 7,17 17,17"/>
+            <polyline points="7,12 7,2 17,2"/>
+          </svg>
+          <span style="margin-left: 0.5rem;">Orbit Voyager</span>
+        </div>
+        
+        <nav class="nav-buttons" role="navigation" aria-label="Main navigation">
+          <button 
+            class="btn btn-ghost btn-icon" 
+            id="notifications-btn"
+            aria-label="Notifications"
+            data-count="0"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 8A6 6 0 0 0 12 8v8a6 6 0 0 0 6-6h-8a6 6 0 0 0-6 6v8a6 6 0 0 0 6 6h8a6 6 0 0 0 6-6z"/>
+              <path d="M12 2v4"/>
+              <path d="M12 18v4"/>
+              <path d="M4.93 4.93L2.59 7.41l1.41 1.41L6.34 10.17l1.41 1.41L4.93 4.93z"/>
+            </svg>
+            <span class="notification-badge" style="display: none;">0</span>
+          </button>
+          
+          <button 
+            class="btn btn-ghost btn-icon" 
+            id="mobile-menu-btn"
+            aria-label="Menu"
+            aria-expanded="false"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content" role="main">
+      <!-- Home View -->
+      <section id="home-view" class="view">
+        <div class="container">
+          <!-- Welcome Section -->
+          <div class="welcome-section text-center">
+            <h1 class="hero-title">
+              Welcome back, <span id="student-name">Voyager</span>! 🚀
+            </h1>
+            <p class="hero-subtitle">
+              Your academic journey continues through the cosmos
+            </p>
+          </div>
+
+          <!-- Stats Grid -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7,10 12,15 17,10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+              </div>
+              <div class="stat-value" id="downloads-count">0</div>
+              <div class="stat-label">Downloads</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff6b35" stroke-width="2">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12.72 4.72a2 2 0 0 0-1.42 0L4.72 12.72a2 2 0 0 0 0 1.42L13.09 22.91a5.5 5.5 0 0 0 7.78 0z"/>
+                  <line x1="12" y1="2" x2="12" y2="22"/>
+                </svg>
+              </div>
+              <div class="stat-value" id="favorites-count">0</div>
+              <div class="stat-label">Favorites</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ffaa00" stroke-width="2">
+                  <polygon points="13,2 3,14 12,14 11,14 1,2"/>
+                  <polyline points="1,22 12,14 23,22"/>
+                </svg>
+              </div>
+              <div class="stat-value" id="streak-count">0</div>
+              <div class="stat-label">Study Streak</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2">
+                  <circle cx="12" cy="8" r="7"/>
+                  <polyline points="8.21,13.89 7,23 12,23 17,23 15.79,13.89"/>
+                </svg>
+              </div>
+              <div class="stat-value" id="courses-count">0</div>
+              <div class="stat-label">Courses</div>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="quick-actions">
+            <h2 class="section-title">Quick Actions</h2>
+            <div class="actions-grid">
+              <button class="action-card btn-primary" id="search-action">
+                <div class="action-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/>
+                    <path d="m21 21-4.35-2.35-2.35"/>
+                    <line x1="11" y1="8" x2="11" y2="14"/>
+                  </svg>
+                </div>
+                <div class="action-content">
+                  <h3>Search Resources</h3>
+                  <p>Find exactly what you need</p>
+                </div>
+              </button>
+              
+              <button class="action-card btn-secondary" id="browse-action">
+                <div class="action-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                    <path d="M6.5 17H20v-6.5a2.5 2.5 0 0 0-2.5-2.5H6.5A2.5 2.5 0 0 0 4 8.5V17z"/>
+                    <path d="M22 6.86a2 2 0 0 0-1.42-1.86l-4.64 4.63a2 2 0 0 0-2.83 0L6.29 16.87a2 2 0 0 0-1.42 1.86L8.83 14.14a2 2 0 0 0 2.83 0l4.63-4.63a2 2 0 0 0 1.42 1.86z"/>
+                  </svg>
+                </div>
+                <div class="action-content">
+                  <h3>Browse Courses</h3>
+                  <p>Explore all available content</p>
+                </div>
+              </button>
+              
+              <button class="action-card btn-ghost" id="profile-action">
+                <div class="action-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                </div>
+                <div class="action-content">
+                  <h3>My Profile</h3>
+                  <p>View your progress</p>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Recent Activity -->
+          <div class="recent-activity" id="recent-activity" style="display: none;">
+            <h2 class="section-title">Recent Activity</h2>
+            <div class="activity-list" id="activity-list">
+              <!-- Activity items will be inserted here -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Search View -->
+      <section id="search-view" class="view" style="display: none;">
+        <div class="container">
+          <button class="btn btn-ghost" id="back-to-home">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="19" y1="12" x2="5" y2="12"/>
+              <polyline points="12,19 5,12 12,5"/>
+            </svg>
+            Back to Home
+          </button>
+          
+          <h1 class="page-title">Search Resources</h1>
+          
+          <div class="search-container">
+            <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-2.35-2.35"/>
+              <line x1="11" y1="8" x2="11" y2="14"/>
+            </svg>
+            <input 
+              type="text" 
+              class="search-input" 
+              id="search-input"
+              placeholder="Search for courses, materials, or topics..."
+              autocomplete="off"
+              aria-label="Search resources"
+            />
+            <div class="search-loading" id="search-loading" style="display: none;">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+
+          <!-- Recent Searches -->
+          <div class="recent-searches" id="recent-searches" style="display: none;">
+            <h2 class="section-title">Recent Searches</h2>
+            <div class="search-tags" id="search-tags">
+              <!-- Search tags will be inserted here -->
+            </div>
+          </div>
+
+          <!-- Search Results -->
+          <div class="search-results" id="search-results">
+            <!-- Results will be inserted here -->
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Mobile Menu -->
+    <div class="mobile-menu" id="mobile-menu" style="display: none;">
+      <nav class="mobile-nav" role="navigation">
+        <div class="mobile-nav-header">
+          <h2>Menu</h2>
+          <button class="btn btn-ghost btn-icon" id="close-mobile-menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="mobile-nav-links">
+          <button class="mobile-nav-link" data-view="home">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+              <polyline points="9,22 9,12 15,12 15,22"/>
+            </svg>
+            Home
+          </button>
+          <button class="mobile-nav-link" data-view="search">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-2.35-2.35"/>
+              <line x1="11" y1="8" x2="11" y2="14"/>
+            </svg>
+            Search
+          </button>
+          <button class="mobile-nav-link" data-view="browse">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+              <path d="M6.5 17H20v-6.5a2.5 2.5 0 0 0-2.5-2.5H6.5A2.5 2.5 0 0 0 4 8.5V17z"/>
+              <path d="M22 6.86a2 2 0 0 0-1.42-1.86l-4.64 4.63a2 2 0 0 0-2.83 0L6.29 16.87a2 2 0 0 0-1.42 1.86L8.83 14.14a2 2 0 0 0 2.83 0l4.63-4.63a2 2 0 0 0 1.42 1.86z"/>
+            </svg>
+            Browse
+          </button>
+          <button class="mobile-nav-link" data-view="profile">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            Profile
+          </button>
+        </div>
+      </nav>
+    </div>
+
+    <!-- Notifications Container -->
+    <div id="notifications-container"></div>
+  </div>
+
+  <!-- Progressive Enhancement Scripts -->
+  <script nomodule>
+    // Fallback for older browsers
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('initial-loading').style.display = 'none';
+  </script>
+
+  <script type="module" src="/src/interactive-features.js"></script>
+  <script nomodule src="/src/legacy-features.js"></script>
+  
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator && window.features.serviceWorker) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          console.log('Service Worker registered');
+        })
+        .catch(error => {
+          console.log('Service Worker registration failed:', error);
+        });
+    }
+  </script>
+</body>
+</html>

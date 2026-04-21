@@ -12,7 +12,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from backend.api.models import Student
+from backend.api.models import Student, Institution
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -56,11 +56,17 @@ def bootstrap(csv_path: str):
                     continue
 
                 # Upsert logic
+                sit_institution = db.query(Institution).filter_by(slug='sit').first()
+                if not sit_institution:
+                    log.error("Institution 'sit' not found in database. Please run bootstrap_orbit.py first.")
+                    return
+
                 existing = db.query(Student).filter_by(id=student_id).first()
                 if existing:
                     existing.full_name = full_name
+                    existing.institution_id = sit_institution.id
                 else:
-                    new_student = Student(id=student_id, full_name=full_name)
+                    new_student = Student(id=student_id, full_name=full_name, institution_id=sit_institution.id)
                     db.add(new_student)
                 
                 records_count += 1

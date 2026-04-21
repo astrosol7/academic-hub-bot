@@ -47,6 +47,7 @@ Thumbs.db
 
 # Desktop App Binaries
 desktop-app/dist/
+desktop-app/dashboard-dist/
 desktop-app/node_modules/
 student_app/dist/
 student_app/node_modules/

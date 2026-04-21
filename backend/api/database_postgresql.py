@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
+from datetime import datetime
 import psycopg2.pool
 
 # PostgreSQL Configuration
@@ -25,31 +26,41 @@ POSTGRES_CONFIG = {
     'options': '-c timezone=UTC'
 }
 
-# Create connection pool
-try:
-    connection_pool = psycopg2.pool.ThreadedConnectionPool(
-        minconn=POSTGRES_CONFIG['minconn'],
-        maxconn=POSTGRES_CONFIG['maxconn'],
-        **{k: v for k, v in POSTGRES_CONFIG.items() if k not in ['minconn', 'maxconn', 'options']}
-    )
-except Exception as e:
-    logging.error(f"Failed to create connection pool: {e}")
-    connection_pool = None
-
 # Create SQLAlchemy engine with PostgreSQL
-DATABASE_URL = f"postgresql://{POSTGRES_CONFIG['user']}:{POSTGRES_CONFIG['password']}@{POSTGRES_CONFIG['host']}:{POSTGRES_CONFIG['port']}/{POSTGRES_CONFIG['database']}"
+# Vercel / Production: Use DATABASE_URL directly if available
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    DATABASE_URL = f"postgresql://{POSTGRES_CONFIG['user']}:{POSTGRES_CONFIG['password']}@{POSTGRES_CONFIG['host']}:{POSTGRES_CONFIG['port']}/{POSTGRES_CONFIG['database']}"
+
+# Adjust pooling for serverless (Vercel) vs Long-running (Local)
+is_serverless = os.getenv('VERCEL') == '1'
 
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5 if is_serverless else 10,
+    max_overflow=0 if is_serverless else 20,
     pool_recycle=3600,
     echo=False,
     connect_args={
-        "application_name": "academic_hub_api"
+        "application_name": "academic_hub_api",
+        "sslmode": "require" if is_serverless else "prefer"
     }
 )
+
+# Threaded pool for legacy psycopg2 usage (if any)
+try:
+    if not is_serverless:
+        connection_pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=POSTGRES_CONFIG['minconn'],
+            maxconn=POSTGRES_CONFIG['maxconn'],
+            **{k: v for k, v in POSTGRES_CONFIG.items() if k not in ['minconn', 'maxconn', 'options']}
+        )
+    else:
+        connection_pool = None
+except Exception as e:
+    logging.error(f"Failed to create connection pool: {e}")
+    connection_pool = None
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -70,6 +81,16 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_database():
     """Initialize PostgreSQL database with all tables and extensions"""
+    if os.getenv('VERCEL') == '1':
+        # On Vercel, we assume the DB already exists (e.g. Neon)
+        # We just run metadata create to ensure tables exist
+        try:
+            Base.metadata.create_all(bind=engine)
+            return True
+        except Exception as e:
+            log.error(f"Vercel DB Init failed: {e}")
+            return False
+
     try:
         # Create database if it doesn't exist
         conn = psycopg2.connect(

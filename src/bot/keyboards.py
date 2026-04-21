@@ -1,5 +1,5 @@
 from __future__ import annotations
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 def build_reply_keyboard(
     button_rows: tuple[tuple[str, ...], ...],
@@ -9,12 +9,7 @@ def build_reply_keyboard(
 ) -> ReplyKeyboardMarkup:
     keyboard = []
     for row in button_rows:
-        keyboard_row = []
-        for label in row:
-            if "Orbit Voyager" in label and voyager_url:
-                keyboard_row.append(KeyboardButton(text=label, web_app=WebAppInfo(url=voyager_url)))
-            else:
-                keyboard_row.append(KeyboardButton(text=label))
+        keyboard_row = [KeyboardButton(text=label) for label in row]
         keyboard.append(keyboard_row)
         
     return ReplyKeyboardMarkup(

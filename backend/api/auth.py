@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.api.models import AdminUser, AdminRole
+from backend.api.models import AdminUser, AdminRole, Student
 from backend.api.database import get_db
 import logging
 
@@ -172,18 +172,29 @@ def bootstrap_root(payload: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/api/v1/auth/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    # 1. Try Admin Check
     user = db.query(AdminUser).filter(AdminUser.username == payload.username).first()
-    if not user or not verify_password(payload.password, user.password_hash):
-        audit_log.warning("event=auth_login_failed username=%s", payload.username)
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user and verify_password(payload.password, user.password_hash):
+        user.last_login = datetime.utcnow()
+        db.commit()
+        access = create_token({"sub": str(user.id), "role": user.role.value, "name": user.username}, timedelta(minutes=30))
+        refresh = create_token({"sub": str(user.id), "refresh": True, "role": user.role.value}, timedelta(days=7))
+        audit_log.info("event=auth_login_success user=%s role=%s", user.username, user.role.value)
+        return TokenResponse(access_token=access, refresh_token=refresh)
 
-    user.last_login = datetime.utcnow()
-    db.commit()
+    # 2. Try Student Check (Demo mode: password is the ID itself or 'voyager')
+    # In a real system, students would have passwords or use TMA.
+    student = db.query(Student).filter(Student.id == payload.username).first()
+    if student:
+        # For demo purposes, we allow login if password matches ID or is 'voyager'
+        if payload.password in (student.id, "voyager"):
+            access = create_token({"sub": student.id, "role": "student", "name": student.full_name}, timedelta(days=1))
+            refresh = create_token({"sub": student.id, "refresh": True, "role": "student"}, timedelta(days=30))
+            audit_log.info("event=auth_student_login_success student_id=%s", student.id)
+            return TokenResponse(access_token=access, refresh_token=refresh)
 
-    access = create_token({"sub": str(user.id), "role": user.role.value}, timedelta(minutes=30))
-    refresh = create_token({"sub": str(user.id), "refresh": True}, timedelta(days=7))
-    audit_log.info("event=auth_login_success user=%s role=%s", user.username, user.role.value)
-    return TokenResponse(access_token=access, refresh_token=refresh)
+    audit_log.warning("event=auth_login_failed username=%s", payload.username)
+    raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
 @router.post("/api/v1/auth/refresh", response_model=TokenResponse)

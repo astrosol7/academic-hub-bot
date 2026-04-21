@@ -43,6 +43,7 @@ async def configure_bot(bot: Bot, dispatcher: Dispatcher) -> MemorySweeper:
             BotCommand(command="ask", description="Ask a question"),
             BotCommand(command="top", description="Top questions"),
             BotCommand(command="my", description="My questions"),
+            BotCommand(command="stop", description="Sign out"),
         ]
     )
     
