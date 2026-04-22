@@ -10,6 +10,7 @@ import StudentLayout from "./layouts/StudentLayout";
 import AdminLogin from "./pages/auth/AdminLogin";
 import StudentLogin from "./pages/auth/StudentLogin";
 import Register from "./pages/auth/Register";
+import Privacy from "./pages/Privacy";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -57,6 +58,7 @@ export default function App() {
         <Route path="/login" element={<StudentLogin />} />
         <Route path="/register" element={<Register />} />
         <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/privacy" element={<Privacy />} />
 
         {/* Admin Routes (Protected) */}
         <Route
