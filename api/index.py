@@ -5,8 +5,23 @@ from datetime import datetime
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 
-# Load environment variables before any other imports (Force override on reload)
-load_dotenv(override=True)
+# Load environment variables from .env if present
+_api_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.dirname(_api_dir)
+_env_path = os.path.join(_root_dir, ".env")
+
+if os.path.exists(_env_path):
+    # In production (Railway/Vercel), we DO NOT want to override system vars with the .env file
+    # that might have been accidentally copied into the container.
+    is_prod = os.getenv('RAILWAY_STATIC_URL') or os.getenv('VERCEL')
+    load_dotenv(_env_path, override=not is_prod)
+    if is_prod:
+        print(f"INFO: Production environment detected. Using system variables (Ignored .env overrides)")
+    else:
+        print(f"INFO: Local environment detected. Loaded variables from {_env_path}")
+else:
+    # Fallback to standard search if not found in parent
+    load_dotenv(override=True)
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware

@@ -37,7 +37,6 @@ class TelegramSession(BaseModel):
     """Telegram session state — persisted in FSMContext via Pydantic."""
     user_id: int = 0
     chat_id: int = 0
-    execution_id: int = 1
 
     # UI State
     screen_message_id: Optional[int] = None

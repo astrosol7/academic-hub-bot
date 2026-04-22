@@ -10,7 +10,6 @@ from src.bot.delivery import DeliveryCoordinator
 from src.bot.handlers import register_handlers
 from src.bot.renderer import TelegramRenderer
 from src.bot.middlewares.concurrency import ConcurrencyGuardMiddleware
-from src.bot.managers.sweeper import MemorySweeper
 from src.core.config import load_config
 from src.core.services import DeliveryService, NavigationService, SearchService
 from src.core.repository import PostgresContentRepository
@@ -34,7 +33,7 @@ def build_dispatcher(bot: Bot, repository: PostgresContentRepository) -> Dispatc
     return dispatcher
 
 
-async def configure_bot(bot: Bot, dispatcher: Dispatcher) -> MemorySweeper:
+async def configure_bot(bot: Bot, dispatcher: Dispatcher) -> None:
     await bot.set_my_commands(
         [
             BotCommand(command="start", description="Start"),
@@ -47,7 +46,4 @@ async def configure_bot(bot: Bot, dispatcher: Dispatcher) -> MemorySweeper:
         ]
     )
     
-    sweeper = MemorySweeper(dispatcher, bot, ttl_minutes=30.0, sweep_interval_minutes=10.0)
-    
     log.info("event=bot_configured")
-    return sweeper

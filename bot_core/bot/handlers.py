@@ -244,8 +244,6 @@ def register_handlers(
 
             # Transition logic
             updated = navigation.transition(session, action)
-            # Advance Execution Token
-            updated = updated.model_copy(update={"execution_id": updated.execution_id + 1})
             # Validate State Integrity
             updated = _validate_session(updated, repository)
 
@@ -267,7 +265,6 @@ def register_handlers(
         session = TelegramSession(
             user_id=message.from_user.id if message.from_user else 0,
             chat_id=message.chat.id,
-            execution_id=1
         )
         task_registry.cancel(session.user_id)  # Kill all ongoing tasks
         await save_session(state, session)
@@ -901,12 +898,12 @@ def register_handlers(
     ) -> None:
         """Isolated Delivery Coroutine executed in background."""
         outcome = await coordinator.send_bundle(
-            message, state, files, original_execution_id=original_exec_id,
+            message, state, files, 
             phase_label=batch_caption
         )
         if not outcome.cancelled and outcome.failed_items:
             session = await load_session(state)
-            if session.execution_id == original_exec_id:
+            if session.delivery_active:
                 req = RetryRequest(
                     failed_paths=tuple(str(item.path) for item in outcome.failed_items),
                     scope=DeliveryScope.COURSE if retry_setup.get("action") == "course_category" else DeliveryScope.WEEK,
@@ -943,7 +940,7 @@ def register_handlers(
         
         session = await load_session(state)
         coro = _run_delivery_task(
-            session.user_id, message, state, files, session.execution_id,
+            session.user_id, message, state, files,
             {"action": "course_category", "course_id": course_id, "category_slug": category_slug},
             batch_caption
         )
@@ -974,7 +971,7 @@ def register_handlers(
         
         session = await load_session(state)
         coro = _run_delivery_task(
-            session.user_id, message, state, files, session.execution_id,
+            session.user_id, message, state, files,
             {"action": "week_category", "course_id": course_id, "week_number": week, "category_slug": category_slug},
             batch_caption
         )
@@ -1313,7 +1310,7 @@ def register_handlers(
         batch_caption = TelegramRenderer.build_batch_caption(course, category, req.week_number) if course and category else "📦 <b>Retrying delivery...</b>"
         
         coro = _run_delivery_task(
-            session.user_id, message, state, retry_files, session.execution_id, retry_setup, batch_caption
+            session.user_id, message, state, retry_files, retry_setup, batch_caption
         )
         task_registry.register(session.user_id, "delivery", asyncio.create_task(coro))
 

@@ -118,36 +118,11 @@ class NavigationService:
     
     def __init__(self, repository):
         self.repository = repository
-        self.navigation_history = {}  # user_id -> list of navigation states
         self.dynamic_contexts = {}  # user_id -> context data
         
-    def add_to_history(self, user_id: int, session: Any) -> None:
-        """Add current state to navigation history"""
-        if user_id not in self.navigation_history:
-            self.navigation_history[user_id] = []
-        
-        # Store current state snapshot
-        state_snapshot = {
-            'level': session.level,
-            'section': session.section,
-            'course_id': session.course_id,
-            'quarter': session.quarter,
-            'week_number': session.week_number,
-            'mode': session.mode,
-            'search_target': getattr(session, 'search_target', None)
-        }
-        
-        self.navigation_history[user_id].append(state_snapshot)
-        # Keep only last 20 states to prevent memory bloat
-        if len(self.navigation_history[user_id]) > 20:
-            self.navigation_history[user_id] = self.navigation_history[user_id][-20:]
     
     def get_back_target(self, user_id: int, current_session: Any) -> Optional[str]:
-        """Get intelligent back navigation target"""
-        if user_id not in self.navigation_history or len(self.navigation_history[user_id]) < 2:
-            return "nav:main"
-            
-        history = self.navigation_history[user_id]
+        """Get intelligent back navigation target without history stack"""
         current_level = current_session.level
         
         # Smart back logic based on current level
@@ -157,14 +132,14 @@ class NavigationService:
             elif current_session.section in ["report_1", "report_2"]:
                 return "nav:overview"
             else:
-                return "nav:select_quarter:" + str(current_session.quarter)
+                return "nav:select_quarter:" + str(current_session.quarter or 1)
         elif current_level == "quarter":
             return "nav:resources"
         elif current_level == "week_list":
             return "nav:overview"
         elif current_level == "resources":
             return "nav:main"
-        elif current_level == "search":
+        elif current_level in ["search", "about", "report", "suggest"]:
             return "nav:main"
         else:
             return "nav:main"
@@ -286,10 +261,7 @@ class NavigationService:
             
         action_type = parts[1]
         
-        # Store current state in history before transition
-        user_id = getattr(session, 'user_id', 0)
-        if user_id:
-            self.add_to_history(user_id, session)
+        # Transition logic
         
         # Handle different action types
         if action_type == "main":
@@ -542,22 +514,7 @@ class SearchService:
     
     def __init__(self, repository):
         self.repository = repository
-        self.search_history = {}  # user_id -> list of searches
         
-    def add_to_search_history(self, user_id: int, query: str, results_count: int) -> None:
-        """Add search to user history"""
-        if user_id not in self.search_history:
-            self.search_history[user_id] = []
-        
-        self.search_history[user_id].append({
-            'query': query,
-            'timestamp': datetime.now(),
-            'results_count': results_count
-        })
-        
-        # Keep only last 20 searches
-        if len(self.search_history[user_id]) > 20:
-            self.search_history[user_id] = self.search_history[user_id][-20:]
     
     async def search(self, query: str, user_id: int, scope: str = "all") -> Dict[str, Any]:
         """Enhanced search with multiple strategies"""
@@ -595,8 +552,6 @@ class SearchService:
             if not unique_results:
                 suggestions = self._generate_suggestions(query)
             
-            # Track search
-            self.add_to_search_history(user_id, query, len(unique_results))
             
             return {
                 "status": "success",
