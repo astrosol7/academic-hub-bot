@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session, joinedload
 
-from api.database_postgresql import get_db, engine, init_database
+from api.database import get_db, init_db
 from api.models import (
     Base,
     Resource, ResourceStatus, Course, Institution, ResourceCategory,
@@ -55,7 +55,7 @@ def _startup_db_init() -> None:
     """
     Bootstrap DB schema for local/dev.
     """
-    if init_database():
+    if init_db():
         log.info("PostgreSQL Orbital Database initialized successfully")
     else:
         log.error("CRITICAL: Database initialization failed")
