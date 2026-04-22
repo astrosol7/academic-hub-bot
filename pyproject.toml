@@ -11,6 +11,7 @@ dependencies = [
     "pydantic",
     "python-multipart",
     "python-jose[cryptography]",
+    "PyJWT",
     "passlib[bcrypt]",
     "python-dotenv",
     "aiogram",
