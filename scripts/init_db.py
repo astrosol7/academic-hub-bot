@@ -22,9 +22,11 @@ log = logging.getLogger("ignitor")
 
 # ── CRITICAL IMPORTS ───────────────────────────────────────────
 # Must import models BEFORE create_all() to register them with Base
-from backend.api.database import engine
-from backend.api.models import Base
-import backend.api.models as models
+from api.database import get_engine
+from api.models import Base
+import api.models as models
+
+engine = get_engine()
 
 def ignite():
     log.info("🚀 Starting Database Ignition...")

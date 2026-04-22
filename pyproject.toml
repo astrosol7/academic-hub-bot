@@ -26,3 +26,19 @@ dependencies = [
 
 [project.scripts]
 app = "api.index:app"
+
+# ── TYPE CHECKER CONFIG ────────────────────────────────────────────────────────
+# This mirrors the runtime PYTHONPATH set by launcher.py:
+#   env["PYTHONPATH"] = root + os.pathsep + os.path.join(root, "src")
+# "." gives access to api.*, backend.*, etc. (root-level packages)
+# "src" gives access to bot.*, core.*, etc. (src-level packages)
+[tool.pyright]
+pythonVersion = "3.12"
+extraPaths = [".", "src"]
+reportMissingModuleSource = "none"
+
+# Pyrefly (Meta's type checker) uses its own section.
+# search_path mirrors the runtime PYTHONPATH set by launcher.py.
+[tool.pyrefly]
+search_path = [".", "src"]
+

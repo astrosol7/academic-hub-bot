@@ -1,7 +1,7 @@
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from backend.api.models import TelegramLink, Student, IdentityState
+from api.models import TelegramLink, Student, IdentityState
 
 log = logging.getLogger(__name__)
 
