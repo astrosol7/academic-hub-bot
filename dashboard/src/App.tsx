@@ -3,7 +3,6 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
-  Bell,
   Bot,
   CheckCircle2,
   ChevronDown,
@@ -374,18 +373,14 @@ export default function App() {
     return String(payload?.role || payload?.scope || "guest");
   });
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
 
   const fetchOverview = async () => {
     if (!isAuthenticated) return;
-    setOverviewLoading(true);
     try {
       const data = await api.overview();
       setOverview(data);
     } catch (err) {
       console.warn("Failed to fetch overview for sidebar", err);
-    } finally {
-      setOverviewLoading(false);
     }
   };
 
@@ -468,17 +463,6 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  const onLogin = (accessToken: string, refreshToken: string, username: string) => {
-    window.localStorage.setItem("orbit_access_token", accessToken);
-    window.localStorage.setItem("orbit_refresh_token", refreshToken);
-    window.localStorage.setItem(USERNAME_KEY, username);
-    
-    const payload = decodeJwtPayload(accessToken);
-    const role = String(payload?.role || payload?.scope || "admin");
-    setSessionRole(role);
-    setAdminUsername(username);
-    setIsAuthenticated(true);
-  };
 
   const logout = () => {
     clearStoredSession();
