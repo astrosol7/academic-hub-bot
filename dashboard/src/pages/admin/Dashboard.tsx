@@ -57,7 +57,7 @@ export default function AdminDashboard() {
         <div className="card">
           <div className="card-header">Recent Activity</div>
           <div className="card-content">
-            <p style={{ color: "#666" }}>Telemetry stream connected. Waiting for new events...</p>
+            <p style={{ color: "var(--text-secondary)" }}>Telemetry stream connected. Waiting for new events...</p>
           </div>
         </div>
       </div>

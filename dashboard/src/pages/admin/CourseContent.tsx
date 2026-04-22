@@ -33,17 +33,17 @@ export default function CourseContent() {
           <div className="card">
             <div className="card-header">Active Courses</div>
             <div className="card-content" style={{ padding: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #F0F0F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid var(--border-color)' }}>
                 <span style={{ fontWeight: 500 }}>CHEM 1210 — Introductory Chemistry I</span>
-                <span style={{ color: '#666' }}>12 Resources</span>
+                <span style={{ color: 'var(--text-secondary)' }}>12 Resources</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #F0F0F0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid var(--border-color)' }}>
                 <span style={{ fontWeight: 500 }}>MATH 1110 — Calculus I</span>
-                <span style={{ color: '#666' }}>8 Resources</span>
+                <span style={{ color: 'var(--text-secondary)' }}>8 Resources</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 24px' }}>
                 <span style={{ fontWeight: 500 }}>PHYS 1310 — Advanced Physics</span>
-                <span style={{ color: '#666' }}>15 Resources</span>
+                <span style={{ color: 'var(--text-secondary)' }}>15 Resources</span>
               </div>
             </div>
           </div>
@@ -54,10 +54,10 @@ export default function CourseContent() {
             <div className="card" style={{ cursor: 'pointer' }}>
               <div className="card-content">
                 <h3 style={{ fontSize: '18px', margin: '0 0 8px 0' }}>Chemistry Syllabus Snippet</h3>
-                <p style={{ color: '#666', fontSize: '14px', margin: '0 0 16px 0' }}>Exams: 60% (4 total, lowest 1 dropped)...</p>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0 0 16px 0' }}>Exams: 60% (4 total, lowest 1 dropped)...</p>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <span style={{ background: '#F0F0F0', padding: '4px 8px', borderRadius: '4px', fontSize: '11px' }}>Syllabus</span>
-                  <span style={{ background: '#F0F0F0', padding: '4px 8px', borderRadius: '4px', fontSize: '11px' }}>CHEM 1210</span>
+                  <span style={{ background: 'var(--bg-hover)', padding: '4px 8px', borderRadius: '4px', fontSize: '11px' }}>Syllabus</span>
+                  <span style={{ background: 'var(--bg-hover)', padding: '4px 8px', borderRadius: '4px', fontSize: '11px' }}>CHEM 1210</span>
                 </div>
               </div>
             </div>
