@@ -15,8 +15,10 @@ if env_path.exists():
 import sys
 sys.path.append(str(root))
 
-from backend.api.database_postgresql import SessionLocal
-from backend.api.models import Course, Resource
+from api.database import get_session_local
+from api.models import Course, Resource
+
+SessionLocal = get_session_local()
 
 def purge():
     db = SessionLocal()

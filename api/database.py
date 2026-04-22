@@ -1,4 +1,4 @@
-"""
+﻿"""
 Production-grade Database Configuration
 Strictly environment-driven, Lazy-initialized, No fallbacks.
 """
@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from typing import Generator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 
 log = logging.getLogger("api.database")
 
@@ -21,6 +21,20 @@ def get_engine():
     """Lazy initialization of the SQLAlchemy engine."""
     global _engine
     if _engine is None:
+        # Scan for potential database variables to identify conflicts
+        db_vars = {k: v for k, v in os.environ.items() if any(x in k.upper() for x in ["DATABASE", "POSTGRES", "DB_URL"])}
+        if db_vars:
+            log.info(f"Detected potential DB variables in environment: {list(db_vars.keys())}")
+            for k, v in db_vars.items():
+                try:
+                    if v and "://" in str(v):
+                        parsed = urlparse(v.strip().strip('"').strip("'"))
+                        log.info(f"  - {k}: {parsed.hostname}:{parsed.port or 5432}")
+                    else:
+                        log.info(f"  - {k}: (not a URL or empty)")
+                except:
+                    log.info(f"  - {k}: (parse error)")
+
         # 1. Try standard DATABASE_URL
         url = os.getenv("DATABASE_URL")
         

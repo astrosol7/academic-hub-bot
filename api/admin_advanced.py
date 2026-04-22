@@ -1,4 +1,4 @@
-"""
+﻿"""
 Advanced Admin Controls for Academic Hub
 Provides comprehensive system monitoring, user management, and administrative controls
 """
@@ -11,12 +11,12 @@ from sqlalchemy import func, text, desc, asc
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.database_sqlite import get_db
+from api.database import get_db
 from api.models import (
     Resource, Course, Institution, UsageSignal, ReportSubmission,
     IngestionLog, ResourceStatus
 )
-from api.error_handling import orbit_log, circuit_breaker, retry_manager
+from api.error_handling import orbit_log, with_circuit_breaker, with_retry
 
 router = APIRouter(prefix="/api/v1/admin/advanced", tags=["admin-advanced"])
 
@@ -69,8 +69,8 @@ class SystemConfiguration(BaseModel):
     maintenance_mode: bool = False
 
 # Advanced System Monitoring
-@circuit_breaker(failure_threshold=3, timeout=30)
-@retry_manager(max_retries=2)
+@with_circuit_breaker(failure_threshold=3, timeout=30)
+@with_retry(max_retries=2)
 @router.get("/system/metrics", response_model=SystemMetrics)
 async def get_system_metrics(db: Session = Depends(get_db)):
     """Get comprehensive system metrics"""
@@ -103,7 +103,7 @@ async def get_system_metrics(db: Session = Depends(get_db)):
         orbit_log.error("Failed to get system metrics", e)
         raise HTTPException(status_code=500, detail="Failed to retrieve system metrics")
 
-@circuit_breaker(failure_threshold=3, timeout=30)
+@with_circuit_breaker(failure_threshold=3, timeout=30)
 @router.get("/users/activity", response_model=List[UserActivity])
 async def get_user_activity(
     limit: int = Query(50, ge=1, le=1000),
@@ -145,11 +145,11 @@ async def get_user_activity(
         orbit_log.error("Failed to get user activity", e)
         raise HTTPException(status_code=500, detail="Failed to retrieve user activity")
 
-@circuit_breaker(failure_threshold=3, timeout=30)
+@with_circuit_breaker(failure_threshold=3, timeout=30)
 @router.get("/resources/analytics", response_model=List[ResourceAnalytics])
 async def get_resource_analytics(
     limit: int = Query(100, ge=1, le=1000),
-    sort_by: str = Query("download_count", regex="^(download_count|search_hits|rating|last_accessed)$"),
+    sort_by: str = Query("download_count", pattern="^(download_count|search_hits|rating|last_accessed)$"),
     db: Session = Depends(get_db)
 ):
     """Get resource usage analytics"""
@@ -189,10 +189,10 @@ async def get_resource_analytics(
         raise HTTPException(status_code=500, detail="Failed to retrieve resource analytics")
 
 # System Alerts Management
-@circuit_breaker(failure_threshold=3, timeout=30)
+@with_circuit_breaker(failure_threshold=3, timeout=30)
 @router.get("/alerts", response_model=List[SystemAlert])
 async def get_system_alerts(
-    severity: Optional[str] = Query(None, regex="^(low|medium|high|critical)$"),
+    severity: Optional[str] = Query(None, pattern="^(low|medium|high|critical)$"),
     resolved: Optional[bool] = Query(None),
     limit: int = Query(50, ge=1, le=1000),
     db: Session = Depends(get_db)
@@ -251,7 +251,7 @@ async def resolve_alert(alert_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Failed to resolve alert")
 
 # Bulk Operations
-@circuit_breaker(failure_threshold=3, timeout=60)
+@with_circuit_breaker(failure_threshold=3, timeout=60)
 @router.post("/bulk/operation")
 async def execute_bulk_operation(
     operation: BulkOperation,
@@ -273,7 +273,7 @@ async def execute_bulk_operation(
             # Bulk archive resources
             updated_count = db.query(Resource).filter(
                 Resource.id.in_(operation.target_ids)
-            ).update({"status": ResourceStatus.ARCHIVED}, synchronize_session=False)
+            ).update({"status": ResourceStatus.DISABLED}, synchronize_session=False)
             db.commit()
             
             orbit_log.info(f"Bulk archived {updated_count} resources")
@@ -306,8 +306,8 @@ async def update_system_configuration(
     """Update system configuration"""
     try:
         # In production, would update database
-        orbit_log.info(f"System configuration updated: {config.dict()}")
-        return {"status": "success", "configuration": config.dict()}
+        orbit_log.info(f"System configuration updated: {config.model_dump()}")
+        return {"status": "success", "configuration": config.model_dump()}
     except Exception as e:
         orbit_log.error("Failed to update system configuration", e)
         raise HTTPException(status_code=500, detail="Failed to update configuration")
@@ -420,7 +420,7 @@ async def get_endpoint_performance(db: Session = Depends(get_db)):
 @router.get("/users/detailed")
 async def get_detailed_users(
     limit: int = Query(100, ge=1, le=1000),
-    status: Optional[str] = Query(None, regex="^(active|inactive|suspended)$"),
+    status: Optional[str] = Query(None, pattern="^(active|inactive|suspended)$"),
     db: Session = Depends(get_db)
 ):
     """Get detailed user information with activity"""

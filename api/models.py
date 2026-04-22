@@ -1,13 +1,17 @@
 import uuid
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
+from functools import partial as _partial
+
+# Timezone-aware UTC timestamp for use as SQLAlchemy column defaults
+def _now(): return datetime.now(timezone.utc)
+
 from sqlalchemy import (
     Column, String, Integer, Boolean, DateTime, ForeignKey, 
     Enum as SQLEnum, Text, Index, UniqueConstraint, CheckConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID, TSVECTOR, JSONB
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, declarative_base
 
 Base = declarative_base()
 
@@ -45,7 +49,14 @@ class QuarantineStatus(str, enum.Enum):
     RECOVERED = "RECOVERED"
     IGNORED = "IGNORED"
 
-# ── INSTITUTIONS & COURSES ──────────────────────────────────────
+class IdentityState(str, enum.Enum):
+    """Represents the verification state of a Telegram user in the system."""
+    GUEST      = "GUEST"       # No student ID bound yet
+    VERIFIED   = "VERIFIED"    # Fully bound to a validated Student record
+    CONFLICTED = "CONFLICTED"  # Administrative quarantine â€” disputed binding
+
+
+# â”€â”€ INSTITUTIONS & COURSES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class Institution(Base):
     __tablename__ = "institutions"
@@ -55,7 +66,7 @@ class Institution(Base):
     display_name = Column(String(255), nullable=False)
     metadata_blob = Column(JSONB, nullable=True) # Full InstitutionManifest JSON
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
     courses = relationship("Course", back_populates="institution")
 
@@ -73,13 +84,13 @@ class Course(Base):
     week_count = Column(Integer, default=0)
     metadata_blob = Column(JSONB, nullable=True) # Full CourseManifest JSON
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
     institution = relationship("Institution", back_populates="courses")
     resources = relationship("Resource", back_populates="course")
 
 
-# ── ACADEMIC RESOURCES ──────────────────────────────────────────
+# â”€â”€ ACADEMIC RESOURCES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ResourceCategory(Base):
     __tablename__ = "resource_categories"
@@ -112,8 +123,8 @@ class Resource(Base):
     status = Column(SQLEnum(ResourceStatus), default=ResourceStatus.ACTIVE, nullable=False)
     source_type = Column(String(50), default="system") # e.g. "drive", "system", "admin"
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     course = relationship("Course", back_populates="resources")
     category = relationship("ResourceCategory")
@@ -123,7 +134,7 @@ class Resource(Base):
     )
 
 
-# ── IDENTITY & STUDENTS & ADMINS ────────────────────────────────
+# â”€â”€ IDENTITY & STUDENTS & ADMINS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class AdminUser(Base):
     __tablename__ = "admin_users"
@@ -134,7 +145,7 @@ class AdminUser(Base):
     role = Column(SQLEnum(AdminRole), default=AdminRole.ADMIN, nullable=False)
     institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=True, index=True) # Null for SUPER_ADMIN resolving to global access
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
     last_login = Column(DateTime, nullable=True)
 
 
@@ -144,7 +155,7 @@ class Student(Base):
     id = Column(String(100), primary_key=True, index=True)  # School ID (authoritative)
     institution_id = Column(UUID(as_uuid=True), ForeignKey("institutions.id"), nullable=False, index=True)
     full_name = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
     institution = relationship("Institution")
 
@@ -158,7 +169,7 @@ class TelegramLink(Base):
     
     # Conflicted lock mappings
     is_conflicted = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
     student = relationship("Student")
     institution = relationship("Institution")
@@ -169,7 +180,7 @@ class TelegramLink(Base):
     )
 
 
-# ── LIFECYCLE & SYNC INCIDENTS ──────────────────────────────────
+# â”€â”€ LIFECYCLE & SYNC INCIDENTS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ReportSubmission(Base):
     __tablename__ = "report_submissions"
@@ -189,8 +200,8 @@ class ReportSubmission(Base):
     status = Column(SQLEnum(ReportStatus), default=ReportStatus.OPEN, nullable=False)
     resolution_note = Column(Text, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
 class SyncError(Base):
@@ -203,7 +214,7 @@ class SyncError(Base):
     raw_metadata = Column(Text, nullable=True)
     
     status = Column(SQLEnum(QuarantineStatus), default=QuarantineStatus.PENDING)
-    detected_at = Column(DateTime, default=datetime.utcnow)
+    detected_at = Column(DateTime, default=_now)
 
 class IngestionLog(Base):
     __tablename__ = "ingestion_logs"
@@ -215,9 +226,9 @@ class IngestionLog(Base):
     duplicate_flag = Column(Boolean, default=False)
     context_snapshot = Column(JSONB, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
-# ── BEHAVIORAL INTELLIGENCE ─────────────────────────────────────
+# â”€â”€ BEHAVIORAL INTELLIGENCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class UsageSignal(Base):
     __tablename__ = "usage_signals"
@@ -226,7 +237,7 @@ class UsageSignal(Base):
     user_id = Column(String(100), nullable=False, index=True)
     action = Column(String(50), nullable=False, index=True)
     metadata_blob = Column(JSONB, nullable=False) # e.g. {"query": "calc 1", "latency_ms": 120}
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=_now, index=True)
     
     __table_args__ = (
         Index("idx_usage_timestamp", "timestamp"),
@@ -239,7 +250,7 @@ class UsageAggregate(Base):
     query = Column(String, nullable=True, index=True)
     count = Column(Integer, default=0)
     aggregate_period = Column(String, default="daily") # daily, weekly
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
 class UsageInsight(Base):
     __tablename__ = "usage_insights"
@@ -247,10 +258,10 @@ class UsageInsight(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     insight_type = Column(String(100), nullable=False) # e.g., "top_failed_queries"
     data = Column(JSONB, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_now)
 
 
-# ── COMMUNITY Q&A (CORE LOOP) ───────────────────────────────────
+# â”€â”€ COMMUNITY Q&A (CORE LOOP) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class QAStatus(str, enum.Enum):
     OPEN = "OPEN"
@@ -275,8 +286,8 @@ class Question(Base):
     body = Column(Text, nullable=False)
 
     status = Column(SQLEnum(QAStatus), default=QAStatus.OPEN, nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now, index=True)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     search_text = Column(TSVECTOR)
 
@@ -298,8 +309,8 @@ class Answer(Base):
 
     body = Column(Text, nullable=False)
     is_accepted = Column(Boolean, default=False, nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_now, index=True)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
 
     search_text = Column(TSVECTOR)
 
@@ -320,7 +331,7 @@ class Vote(Base):
     answer_id = Column(UUID(as_uuid=True), ForeignKey("answers.id"), nullable=True, index=True)
 
     value = Column(Integer, nullable=False)  # -1 or +1
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=_now, index=True)
 
     __table_args__ = (
         CheckConstraint("value IN (-1, 1)", name="ck_votes_value_range"),

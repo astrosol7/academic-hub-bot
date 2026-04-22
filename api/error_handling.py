@@ -6,6 +6,7 @@ Provides comprehensive error handling, logging, and automatic recovery mechanism
 import logging
 import traceback
 import asyncio
+import inspect
 import functools
 from typing import Any, Callable, Optional, Dict, List
 from datetime import datetime, timedelta
@@ -59,7 +60,7 @@ class OrbitLogger:
     def warning(self, message: str, **kwargs):
         self.logger.warning(message, extra=kwargs)
     
-    def error(self, message: str, error: Exception = None, **kwargs):
+    def error(self, message: str, error: Optional[Exception] = None, **kwargs):
         """Enhanced error logging with context and tracking"""
         error_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{id(message)}"
         
@@ -119,12 +120,14 @@ class CircuitBreaker:
     def __call__(self, func):
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
-            if self.state == 'OPEN':
+            if self.state == 'OPEN' and self.last_failure_time:
                 if datetime.now() - self.last_failure_time > timedelta(seconds=self.timeout):
                     self.state = 'HALF_OPEN'
                     orbit_log.info(f"Circuit breaker HALF_OPEN for {func.__name__}")
                 else:
                     raise Exception(f"Circuit breaker OPEN for {func.__name__}")
+            elif self.state == 'OPEN' and not self.last_failure_time:
+                self.state = 'CLOSED'
             
             try:
                 result = await func(*args, **kwargs)
@@ -145,12 +148,14 @@ class CircuitBreaker:
         
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
-            if self.state == 'OPEN':
+            if self.state == 'OPEN' and self.last_failure_time:
                 if datetime.now() - self.last_failure_time > timedelta(seconds=self.timeout):
                     self.state = 'HALF_OPEN'
                     orbit_log.info(f"Circuit breaker HALF_OPEN for {func.__name__}")
                 else:
                     raise Exception(f"Circuit breaker OPEN for {func.__name__}")
+            elif self.state == 'OPEN' and not self.last_failure_time:
+                self.state = 'CLOSED'
             
             try:
                 result = func(*args, **kwargs)
@@ -169,7 +174,7 @@ class CircuitBreaker:
                 
                 raise e
         
-        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+        return async_wrapper if inspect.iscoroutinefunction(func) else sync_wrapper
 
 class RetryManager:
     """Advanced retry mechanism with exponential backoff and jitter"""
@@ -206,7 +211,9 @@ class RetryManager:
                     )
                     await asyncio.sleep(delay)
             
-            raise last_exception
+            if last_exception:
+                raise last_exception
+            raise Exception("Unknown retry failure")
         
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
@@ -235,9 +242,11 @@ class RetryManager:
                     import time
                     time.sleep(delay)
             
-            raise last_exception
+            if last_exception:
+                raise last_exception
+            raise Exception("Unknown retry failure")
         
-        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+        return async_wrapper if inspect.iscoroutinefunction(func) else sync_wrapper
 
 class HealthChecker:
     """System health monitoring and recovery"""
@@ -246,7 +255,7 @@ class HealthChecker:
         self.checks = {}
         self.last_health_status = {}
     
-    def add_check(self, name: str, check_func: Callable[[], bool], recovery_func: Callable[[], None] = None):
+    def add_check(self, name: str, check_func: Callable[[], bool], recovery_func: Optional[Callable[[], Any]] = None):
         """Add a health check with optional recovery function"""
         self.checks[name] = {
             'check': check_func,
@@ -340,10 +349,11 @@ class DatabaseRecovery:
     async def reconnect_database():
         """Attempt to reconnect to database"""
         try:
-            from api.database_sqlite import engine
-            # Test connection
+            from api.database import get_engine
+            from sqlalchemy import text
+            engine = get_engine()
             with engine.connect() as conn:
-                conn.execute("SELECT 1")
+                conn.execute(text("SELECT 1"))
             orbit_log.info("Database reconnection successful")
             return True
         except Exception as e:
@@ -352,13 +362,14 @@ class DatabaseRecovery:
     
     @staticmethod
     async def repair_database():
-        """Attempt to repair database corruption"""
+        """Attempt to verify database connectivity (PostgreSQL-safe)."""
         try:
-            from api.database_sqlite import engine
+            from api.database import get_engine
+            from sqlalchemy import text
+            engine = get_engine()
             with engine.connect() as conn:
-                conn.execute("PRAGMA integrity_check")
-                conn.execute("VACUUM")
-            orbit_log.info("Database repair successful")
+                conn.execute(text("SELECT 1"))
+            orbit_log.info("Database repair/check successful")
             return True
         except Exception as e:
             orbit_log.error("Database repair failed", e)
@@ -385,11 +396,13 @@ def initialize_health_checks():
     # Database health check
     def check_database():
         try:
-            from api.database_sqlite import engine
+            from api.database import get_engine
+            from sqlalchemy import text
+            engine = get_engine()
             with engine.connect() as conn:
-                conn.execute("SELECT 1")
+                conn.execute(text("SELECT 1"))
             return True
-        except:
+        except Exception:
             return False
     
     health_checker.add_check(
