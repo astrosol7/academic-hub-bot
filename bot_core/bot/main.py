@@ -44,17 +44,14 @@ async def main():
     bot = Bot(token=config.bot.token)
     dp = build_dispatcher(bot, repository)
     
-    # Configure shared services (sweepers, commands, etc.)
-    sweeper = await configure_bot(bot, dp)
+    # Configure shared services (commands, etc.)
+    await configure_bot(bot, dp)
     
     log.info("📡 Uplink established. Bot is now polling.")
     
     try:
-        # Start the sweeper and polling concurrently
-        await asyncio.gather(
-            dp.start_polling(bot),
-            # Add any other long-running tasks here
-        )
+        # Start polling
+        await dp.start_polling(bot)
     except Exception as e:
         log.error(f"❌ Critical error in bot polling: {e}")
     finally:

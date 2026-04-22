@@ -39,47 +39,8 @@ class ConcurrencyGuardMiddleware(BaseMiddleware):
         if not user:
             return await handler(event, data)
             
-        user_id = user.id
-        state: FSMContext | None = data.get("state")
-        current_time = monotonic()
-        self._last_active_at[user_id] = current_time
-        
-        is_low_priority = True
-        mode_context = "UNKNOWN"
-        execution_id = "UNKNOWN"
-        
-        # Priority check
-        if state and isinstance(event, Message) and event.text:
-            text = event.text.strip()
-            from academic_hub.clients.telegram.session import load_session
-            session = await load_session(state)
-            mode_context = session.mode.value
-            execution_id = session.execution_id
-            
-            if session.mode in (SessionMode.SEARCH, SessionMode.REPORT):
-                if text not in self._all_buttons:
-                    is_low_priority = False
-                    
-        if is_low_priority:
-            self._latest_intent_low[user_id] = current_time
-            
-        if user_id not in self._user_locks:
-            self._user_locks[user_id] = asyncio.Lock()
-            
-        async with self._user_locks[user_id]:
-            if is_low_priority and self._latest_intent_low[user_id] != current_time:
-                log_event(
-                    log,
-                    logging.DEBUG,
-                    LogCategory.SYSTEM_DROPPED_EVENT,
-                    "Dropped stale low-priority navigation intent.",
-                    user_id=user_id,
-                    session_mode=mode_context,
-                    execution_id=execution_id,
-                    action="DROP_STALE"
-                )
-                return None
-                
-            return await handler(event, data)
+        # We rely on aiogram's built-in handling and task_registry for cancellation.
+        # Minimalist middleware that doesn't maintain in-memory state.
+        return await handler(event, data)
 
 concurrency_guard = ConcurrencyGuardMiddleware()

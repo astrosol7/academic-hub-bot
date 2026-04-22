@@ -48,7 +48,6 @@ class DeliveryCoordinator:
         trigger_message: Message,
         state: FSMContext,
         items: list[ResourceFile],
-        original_execution_id: int,
         *,
         phase_label: str = "📦 <b>Preparing your materials...</b>",
     ) -> SendOutcome:
@@ -83,20 +82,17 @@ class DeliveryCoordinator:
                 await asyncio.sleep(0)
                 
                 session = await load_session(state)
-                # HARD INTERRUPT: Check token mismatch or cancel flag
-                if (session.execution_id != original_execution_id or 
-                    session.delivery is None or 
+                # HARD INTERRUPT: Check cancel flag
+                if (session.delivery is None or 
                     session.delivery.session_id != delivery_id or 
                     session.delivery.cancel_requested):
                     
                     log_event(
-                        log, logging.WARNING, LogCategory.SYSTEM_TOKEN_MISMATCH,
+                        log, logging.WARNING, LogCategory.DELIVERY_CANCEL,
                         "Delivery aborted due to intent shift or explicit cancellation.",
                         user_id=session.user_id,
                         session_mode=session.mode.value,
-                        execution_id=session.execution_id,
-                        expected_execution_id=original_execution_id,
-                        action="EXECUTION_TOKEN_MISMATCH"
+                        action="DELIVERY_ABORTED"
                     )
                     
                     await self._safe_delete(status_message)
