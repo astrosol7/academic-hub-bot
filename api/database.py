@@ -1,53 +1,82 @@
-"""Database session factory — shared module to prevent circular imports."""
+"""
+Production-grade Database Configuration
+Strictly environment-driven, Lazy-initialized, No fallbacks.
+"""
 import os
 import logging
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from typing import Generator
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.ext.declarative import declarative_base
 
 log = logging.getLogger("api.database")
 
-def get_database_url():
-    """Resolves database URL from various environment sources."""
-    # 1. Primary: DATABASE_URL (Standard for Vercel/Railway)
-    url = os.getenv("DATABASE_URL")
-    if url:
-        return url
+# Globals for lazy initialization
+_engine = None
+_SessionLocal = None
+Base = declarative_base()
+
+def get_engine():
+    """Lazy initialization of the SQLAlchemy engine."""
+    global _engine
+    if _engine is None:
+        url = os.getenv("DATABASE_URL")
+        if not url:
+            # We fail LOUDLY but only when the system actually tries to use the DB
+            raise RuntimeError(
+                "\n" + "="*60 + "\n"
+                "CRITICAL CONFIGURATION ERROR:\n"
+                "DATABASE_URL is missing from the environment.\n"
+                "Production systems MUST have this variable set.\n"
+                "="*60
+            )
         
-    # 2. Fallback: Manual construction from individual variables
-    user = os.getenv("POSTGRES_USER", "postgres")
-    password = os.getenv("POSTGRES_PASSWORD", "password")
-    host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
-    db = os.getenv("POSTGRES_DB", "academic_hub")
-    
-    return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+        # Strip whitespace (common copy-paste error)
+        url = url.strip()
+        
+        # SSL and Pooling configuration
+        is_serverless = os.getenv('VERCEL') == '1'
+        connect_args = {}
+        if "postgresql" in url:
+            # Require SSL in production environments
+            connect_args["sslmode"] = "require" if is_serverless else "prefer"
+            
+        _engine = create_engine(
+            url, 
+            pool_pre_ping=True,
+            pool_size=5 if is_serverless else 10,
+            max_overflow=20,
+            connect_args=connect_args
+        )
+        log.info("SQLAlchemy engine initialized (Lazy)")
+        
+    return _engine
 
-DATABASE_URL = get_database_url()
+def get_session_local():
+    """Lazy initialization of the Session factory."""
+    global _SessionLocal
+    if _SessionLocal is None:
+        engine = get_engine()
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return _SessionLocal
 
-# Configuration for Engine
-is_serverless = os.getenv('VERCEL') == '1'
-connect_args = {}
-if "postgresql" in DATABASE_URL:
-    connect_args["sslmode"] = "require" if is_serverless else "prefer"
-
-try:
-    engine = create_engine(
-        DATABASE_URL, 
-        pool_pre_ping=True,
-        connect_args=connect_args
-    )
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-except Exception as e:
-    log.error(f"Failed to create SQLAlchemy engine: {e}")
-    # We don't raise here to prevent import-time crashes, but get_db will fail
-    engine = None
-    SessionLocal = None
-
-def get_db():
-    if not SessionLocal:
-        raise RuntimeError("Database not configured. Ensure DATABASE_URL is set.")
+def get_db() -> Generator[Session, None, None]:
+    """FastAPI Dependency for database sessions."""
+    SessionLocal = get_session_local()
     db = SessionLocal()
     try:
         yield db
+    except Exception as e:
+        log.error(f"Database session error: {e}")
+        db.rollback()
+        raise
     finally:
         db.close()
+
+def init_db():
+    """Initialize database metadata (tables)."""
+    engine = get_engine()
+    from api.models import Base as ModelsBase
+    # Ensure all models are registered
+    ModelsBase.metadata.create_all(bind=engine)
+    log.info("Database metadata initialized.")

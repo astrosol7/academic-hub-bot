@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 
-from api.database_postgresql import get_db
+from api.database import get_db
 from api.models import (
     Course,
     Institution,
