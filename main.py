@@ -1,3 +1,8 @@
+import sys
+import os
+# Ensure project root is in path for absolute imports
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 from api.index import app
 import uvicorn
 import os
