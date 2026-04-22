@@ -28,9 +28,13 @@ __pycache__/
 resources/
 lms/pdfs/
 
-# IDE
+# IDE & Tools
 .vscode/
 .idea/
+.cursor/
+.sixth/
+.gemini/
+.antigravity/
 
 # Node (dashboard)
 node_modules/
