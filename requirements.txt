@@ -7,6 +7,7 @@ python-multipart
 python-jose[cryptography]
 PyJWT
 passlib[bcrypt]
+bcrypt
 python-dotenv
 aiogram
 aiofiles

@@ -70,10 +70,14 @@ def _startup_db_init() -> None:
     """
     Bootstrap DB schema for local/dev.
     """
-    if init_db():
-        log.info("PostgreSQL Orbital Database initialized successfully")
-    else:
-        log.error("CRITICAL: Database initialization failed")
+    try:
+        if init_db():
+            log.info("PostgreSQL Orbital Database initialized successfully")
+        else:
+            log.warning("Database initialization skipped (possibly already initialized)")
+    except Exception as e:
+        log.error(f"CRITICAL: Database initialization failed during startup: {e}")
+        # We don't re-raise here so the API can still start and serve a health-check error
 
 # CORS for dashboard access
 _raw_origins = (os.environ.get("ORBIT_ALLOWED_ORIGINS") or "http://localhost:5173,http://127.0.0.1:5173")
@@ -422,10 +426,18 @@ def ingest_resource(payload: CISIngestRequest, db: Session = Depends(get_db)):
 
 @app.get("/api/v1/health")
 def health_check(db: Session = Depends(get_db)):
-    has_admin = db.query(AdminUser).filter(AdminUser.role == AdminRole.SUPER_ADMIN).first() is not None
+    try:
+        has_admin = db.query(AdminUser).filter(AdminUser.role == AdminRole.SUPER_ADMIN).first() is not None
+        db_status = "connected"
+    except Exception as e:
+        log.error(f"Health check DB error: {e}")
+        has_admin = False
+        db_status = f"error: {str(e)}"
+
     return {
-        "status": "operational", 
-        "version": "1.0.0", 
+        "status": "operational" if db_status == "connected" else "degraded",
+        "database": db_status,
+        "version": "1.0.1", 
         "release": "orbit",
         "setup_required": not has_admin
     }
