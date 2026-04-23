@@ -1,4 +1,4 @@
-import { Shield, Lock, Eye, FileText, ChevronRight } from "lucide-react";
+import { Shield, Lock, Eye, FileText } from "lucide-react";
 import { useTheme } from "../lib/theme";
 
 export default function PrivacyPolicy() {
