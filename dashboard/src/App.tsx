@@ -1,5 +1,6 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
 import { useAuth } from "./lib/auth";
 
 // Layouts
@@ -50,6 +51,7 @@ function AuthRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
+      <Analytics />
       <Routes>
         {/* Root redirect */}
         <Route path="/" element={<AuthRedirect />} />
