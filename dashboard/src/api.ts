@@ -366,4 +366,11 @@ export const api = {
       body: JSON.stringify({ init_data: initData }),
     });
   },
+
+  googleLogin: async (credential: string) => {
+    return unauthenticatedJsonFetch<TokenResponse>("/api/v1/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ credential }),
+    });
+  },
 };

@@ -14,6 +14,9 @@ from sqlalchemy.orm import Session
 from api.models import AdminUser, AdminRole, Student
 from api.database import get_db
 import logging
+from src.core.config.config import load_config
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 SECRET_KEY = os.getenv("JWT_SECRET", "super_secret_dev_key_never_use_in_prod")
 ENV = (os.getenv("ACADEMIC_HUB_ENV") or "dev").strip().lower()
@@ -111,6 +114,9 @@ class RefreshRequest(BaseModel):
 
 class TMAPayload(BaseModel):
     init_data: str
+
+class GoogleAuthPayload(BaseModel):
+    credential: str
 
 # ── HASHING UTILS (RAW BCRYPT) ────────────────────────────────
 
@@ -230,3 +236,48 @@ def tma_login(payload: TMAPayload, db: Session = Depends(get_db)):
     
     audit_log.info("event=tma_login_success telegram_id=%s", telegram_id)
     return TokenResponse(access_token=access, refresh_token=refresh)
+
+@router.post("/api/v1/auth/google", response_model=TokenResponse)
+def google_login(payload: GoogleAuthPayload, db: Session = Depends(get_db)):
+    config = load_config(require_token=False)
+    client_id = config.google_client_id
+    if not client_id:
+        raise HTTPException(status_code=500, detail="Google Auth is not configured on the server.")
+
+    try:
+        # Verify the Google token
+        idinfo = id_token.verify_oauth2_token(
+            payload.credential, 
+            google_requests.Request(), 
+            client_id
+        )
+        email = idinfo.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Google token missing email")
+
+        # 1. Try Admin Check
+        # We assume the admin's username is their Google email
+        admin = db.query(AdminUser).filter(AdminUser.username == email).first()
+        if admin:
+            admin.last_login = datetime.utcnow()
+            db.commit()
+            access = create_token({"sub": str(admin.id), "role": admin.role.value, "name": admin.username}, timedelta(minutes=30))
+            refresh = create_token({"sub": str(admin.id), "refresh": True, "role": admin.role.value}, timedelta(days=7))
+            audit_log.info("event=google_login_success_admin email=%s role=%s", email, admin.role.value)
+            return TokenResponse(access_token=access, refresh_token=refresh)
+
+        # 2. Try Student Check
+        # In a robust system we'd link emails. For now, check if student ID == email (e.g. email mapping)
+        student = db.query(Student).filter(Student.id == email).first()
+        if student:
+            access = create_token({"sub": student.id, "role": "student", "name": student.full_name}, timedelta(days=1))
+            refresh = create_token({"sub": student.id, "refresh": True, "role": "student"}, timedelta(days=30))
+            audit_log.info("event=google_login_success_student email=%s", email)
+            return TokenResponse(access_token=access, refresh_token=refresh)
+
+        audit_log.warning("event=google_login_failed_not_found email=%s", email)
+        raise HTTPException(status_code=401, detail=f"User with email {email} not found in system")
+
+    except ValueError as e:
+        audit_log.warning("event=google_login_failed_invalid_token error=%s", str(e))
+        raise HTTPException(status_code=401, detail="Invalid Google token")

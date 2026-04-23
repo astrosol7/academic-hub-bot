@@ -5,14 +5,19 @@ import "./index.css";
 import App from "./App";
 import { AuthProvider } from "./lib/auth";
 import { ThemeProvider } from "./lib/theme";
+import { GoogleOAuthProvider } from "@react-oauth/google";
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "704059214969-gnb86dgiat7tqr83j7n7uav08udmsrqc.apps.googleusercontent.com";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider>
-      <AuthProvider>
-        <App />
-        <SpeedInsights />
-      </AuthProvider>
-    </ThemeProvider>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <ThemeProvider>
+        <AuthProvider>
+          <App />
+          <SpeedInsights />
+        </AuthProvider>
+      </ThemeProvider>
+    </GoogleOAuthProvider>
   </StrictMode>,
 );

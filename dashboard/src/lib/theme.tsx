@@ -5,7 +5,7 @@ export type Theme = "night" | "light";
 
 interface ThemeContextValue {
   theme: Theme;
-  toggleTheme: () => void;
+  toggleTheme: (event?: React.MouseEvent) => void;
 }
 
 // ─── Context ───
@@ -37,7 +37,45 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
 
-  const toggleTheme = () => setTheme((t) => (t === "night" ? "light" : "night"));
+  const toggleTheme = (event?: React.MouseEvent) => {
+    const newTheme = theme === "night" ? "light" : "night";
+
+    // Fallback for browsers that don't support View Transitions
+    if (!document.startViewTransition || !event) {
+      setTheme(newTheme);
+      return;
+    }
+
+    // Get click position or fallback to center
+    const x = event.clientX;
+    const y = event.clientY;
+    const endRadius = Math.hypot(
+      Math.max(x, innerWidth - x),
+      Math.max(y, innerHeight - y)
+    );
+
+    const transition = document.startViewTransition(() => {
+      setTheme(newTheme);
+    });
+
+    transition.ready.then(() => {
+      const clipPath = [
+        `circle(0px at ${x}px ${y}px)`,
+        `circle(${endRadius}px at ${x}px ${y}px)`,
+      ];
+
+      document.documentElement.animate(
+        {
+          clipPath: clipPath,
+        },
+        {
+          duration: 400,
+          easing: "ease-in-out",
+          pseudoElement: "::view-transition-new(root)",
+        }
+      );
+    });
+  };
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

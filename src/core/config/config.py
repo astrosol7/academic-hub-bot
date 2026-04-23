@@ -66,6 +66,9 @@ class AppConfig:
     # Admin
     admin_telegram_id: str = ""
 
+    # External Auth
+    google_client_id: str = ""
+
     # AI Helper
     groq_api_key: str = ""  # Comma-separated for multiple keys
     ai_helper_enabled: bool = True
@@ -124,6 +127,7 @@ def load_config(require_token: bool = True) -> AppConfig:
         required_group_id=os.getenv("ORBIT_REQUIRED_GROUP_ID", ""),
         required_group_invite_link=os.getenv("ORBIT_REQUIRED_GROUP_INVITE_LINK", ""),
         admin_telegram_id=os.getenv("ORBIT_ADMIN_TELEGRAM_ID", ""),
+        google_client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
         groq_api_key=os.getenv("GROQ_API_KEY", ""),
         ai_helper_enabled=os.getenv("AI_HELPER_ENABLED", "true").lower() == "true",
         ai_daily_limit_regular=int(os.getenv("AI_DAILY_LIMIT_REGULAR", "50")),
