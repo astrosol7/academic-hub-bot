@@ -21,7 +21,8 @@ dependencies = [
     "psutil",
     "click",
     "rich",
-    "typer"
+    "typer",
+    "google-auth"
 ]
 
 [project.scripts]

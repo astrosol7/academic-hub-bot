@@ -1,19 +1,53 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Lock, CreditCard, Moon, Sun, Sparkles } from "lucide-react";
 import { Button, Input } from "../../components/ui";
 import { useTheme } from "../../lib/theme";
+import TelegramLoginWidget from "../../components/TelegramLoginWidget";
+import { useGoogleLogin } from "@react-oauth/google";
+import { api } from "../../api";
 
 export default function StudentLogin() {
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
 
   const [studentId, setStudentId] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string>("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const loginWithGoogle = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      try {
+        setLoading(true);
+        setError("");
+        // Exchange the Google access token (credential is not implicit here, we get access_token from useGoogleLogin)
+        // Wait, for implicit flow with useGoogleLogin, we get an access_token.
+        // Let's send it to the backend.
+        const res = await api.googleLogin(tokenResponse.access_token);
+        
+        // Use the returned tokens to set session and navigate
+        window.localStorage.setItem("orbit_access_token", res.access_token);
+        window.localStorage.setItem("orbit_refresh_token", res.refresh_token);
+        
+        // Manually dispatch storage event or just navigate
+        window.dispatchEvent(new Event("storage"));
+        navigate("/dashboard");
+      } catch (err: any) {
+        console.error(err);
+        setError(err.detail || "Failed to authenticate with Google");
+      } finally {
+        setLoading(false);
+      }
+    },
+    onError: (error) => {
+      console.error(error);
+      setError("Google Login failed");
+    }
+  });
+
+  const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentId.trim() || !password.trim()) {
       setError("Both fields are required.");
@@ -60,7 +94,7 @@ export default function StudentLogin() {
         </div>
 
         {/* Login Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleManualSubmit} className="space-y-4">
           <Input
             label="Student ID"
             placeholder="SIT-ST-2029-00034"
@@ -99,23 +133,26 @@ export default function StudentLogin() {
           <div className="h-px flex-1 bg-[var(--border)]" />
         </div>
 
-        {/* Telegram Login Placeholder */}
-        <div className="space-y-3">
-          <Button variant="secondary" className="w-full" disabled>
-            <svg viewBox="0 0 24 24" className="h-4 w-4 mr-1" fill="currentColor">
-              <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-            </svg>
-            Login with Telegram (Coming Soon)
-          </Button>
+        {/* OAuth Buttons */}
+        <div className="space-y-4">
+          <TelegramLoginWidget 
+            botName="academichubbot" 
+            onAuth={(user) => setError(`Telegram Login successful for ${user.first_name}. Backend integration required.`)} 
+          />
 
-          <Button variant="secondary" className="w-full" disabled>
-            <svg viewBox="0 0 24 24" className="h-4 w-4 mr-1" fill="currentColor">
+          <Button 
+            variant="secondary" 
+            className="w-full relative overflow-hidden transition-all duration-300 hover:shadow-md hover:-translate-y-[1px] bg-white text-gray-700 border-gray-200 dark:bg-[#1A1A1A] dark:text-gray-200 dark:border-gray-800" 
+            onClick={() => loginWithGoogle()}
+            disabled={loading}
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5 mr-2 absolute left-4" fill="currentColor">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
             </svg>
-            Sign in with Google (Coming Soon)
+            Continue with Google
           </Button>
         </div>
 
